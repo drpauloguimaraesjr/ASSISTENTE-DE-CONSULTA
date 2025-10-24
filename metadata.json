@@ -1,0 +1,8 @@
+{
+  "name": "Assistente de Consulta em Tempo Real",
+  "description": "Um aplicativo que transcreve áudio em tempo real, gera um registro completo da conversa e fornece insights de IA, simulando um 'fluxo de consciência' durante uma consulta médica.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ]
+}
