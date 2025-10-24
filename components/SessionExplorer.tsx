@@ -4,6 +4,7 @@ import { SessionData } from '../App';
 interface SessionExplorerProps {
     sessions: SessionData[];
     onSessionSelect: (session: SessionData) => void;
+    onDeleteSession: (sessionId: number) => void;
 }
 
 const FolderIcon: React.FC<{className?: string}> = ({ className }) => (
@@ -12,6 +13,10 @@ const FolderIcon: React.FC<{className?: string}> = ({ className }) => (
 
 const FileIcon: React.FC<{className?: string}> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg>
+);
+
+const TrashIcon: React.FC<{className?: string}> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
 );
 
 const ChevronDownIcon: React.FC<{className?: string}> = ({ className }) => (
@@ -33,7 +38,7 @@ const groupSessionsByDate = (sessions: SessionData[]): Record<string, SessionDat
     }, {} as Record<string, SessionData[]>);
 };
 
-export const SessionExplorer: React.FC<SessionExplorerProps> = ({ sessions, onSessionSelect }) => {
+export const SessionExplorer: React.FC<SessionExplorerProps> = ({ sessions, onSessionSelect, onDeleteSession }) => {
     const groupedSessions = groupSessionsByDate(sessions);
     const sortedDates = Object.keys(groupedSessions).sort((a, b) => {
        return new Date(groupedSessions[b][0].startTime).getTime() - new Date(groupedSessions[a][0].startTime).getTime();
@@ -71,15 +76,28 @@ export const SessionExplorer: React.FC<SessionExplorerProps> = ({ sessions, onSe
                                     {groupedSessions[date]
                                         .sort((a,b) => b.startTime.getTime() - a.startTime.getTime())
                                         .map(session => (
-                                        <li key={session.id}>
+                                        <li key={session.id} className="group flex justify-between items-center rounded-md hover:bg-primary/50">
                                             <button 
                                                 onClick={() => onSessionSelect(session)}
-                                                className="w-full flex items-center p-2 rounded-md hover:bg-primary/50 transition-colors text-left"
+                                                className="flex-grow flex items-center p-2 text-left transition-colors"
                                             >
                                                 <FileIcon className="w-5 h-5 mr-2 text-tertiary" />
                                                 <span className="text-secondary text-sm">
                                                     Consulta às {session.startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                                                 </span>
+                                            </button>
+                                             <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (window.confirm('Tem certeza de que deseja apagar esta sessão? Esta ação não pode ser desfeita.')) {
+                                                        onDeleteSession(session.id);
+                                                    }
+                                                }}
+                                                className="p-2 rounded-full text-tertiary hover:text-button-danger-hover hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                aria-label="Apagar sessão"
+                                                title="Apagar sessão"
+                                            >
+                                                <TrashIcon className="w-4 h-4" />
                                             </button>
                                         </li>
                                     ))}

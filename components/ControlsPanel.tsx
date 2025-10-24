@@ -1,5 +1,5 @@
 import React from 'react';
-import { WaveformVisualizer } from './WaveformVisualizer';
+import { WaveformVisualizer, WaveformStyle } from './WaveformVisualizer';
 
 interface ControlsPanelProps {
     isListening: boolean;
@@ -12,6 +12,7 @@ interface ControlsPanelProps {
     selectedDeviceId?: string;
     onDeviceChange: (deviceId: string) => void;
     mediaStream: MediaStream | null;
+    waveformStyle: WaveformStyle;
 }
 
 const MicrophoneIcon: React.FC<{className?: string}> = ({ className }) => (
@@ -34,7 +35,7 @@ const VolumeOffIcon: React.FC<{className?: string}> = ({ className }) => (
 );
 
 
-export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statusMessage, currentTranscription, onToggleListening, isMuted, onToggleMute, audioDevices, selectedDeviceId, onDeviceChange, mediaStream }) => {
+export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statusMessage, currentTranscription, onToggleListening, isMuted, onToggleMute, audioDevices, selectedDeviceId, onDeviceChange, mediaStream, waveformStyle }) => {
     return (
         <div className="bg-panel rounded-lg p-6 flex flex-col items-center justify-between border border-primary h-full">
             <div className="text-center w-full">
@@ -42,7 +43,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
                 <p className="text-secondary text-sm h-10">{statusMessage}</p>
             </div>
 
-             <div className="w-full max-w-sm my-4">
+            <div className="w-full max-w-sm my-4">
                 <label htmlFor="audio-device-select" className="block text-sm font-medium text-secondary mb-1">
                     Microfone
                 </label>
@@ -50,7 +51,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
                     id="audio-device-select"
                     value={selectedDeviceId || ''}
                     onChange={(e) => onDeviceChange(e.target.value)}
-                    disabled={audioDevices.length === 0}
+                    disabled={audioDevices.length === 0 || isListening}
                     className="w-full bg-primary border border-secondary rounded-md p-2.5 text-sm text-primary focus:ring-2 focus-ring focus:border-accent transition-colors disabled:bg-panel disabled:cursor-not-allowed"
                 >
                     {audioDevices.length > 0 ? (
@@ -67,38 +68,47 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
                 </select>
             </div>
 
-            <div className="my-4 flex items-center justify-center gap-6">
-                <button
-                    onClick={onToggleListening}
-                    className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50
-                        ${isListening 
-                            ? 'btn-danger text-white' 
-                            : 'btn-primary text-white'
-                        }`}
-                    aria-label={isListening ? "Parar de ouvir" : "Começar a ouvir"}
-                >
-                    {isListening && mediaStream && (
-                         <WaveformVisualizer stream={mediaStream} isListening={isListening} />
-                    )}
-                    <MicrophoneIcon className="w-12 h-12 relative z-10" />
-                </button>
-                 <button
-                    onClick={onToggleMute}
-                    disabled={!isListening}
-                    className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50
-                        ${isMuted
-                            ? 'bg-slate-600 text-slate-300'
-                            : 'btn-secondary text-white'
-                        }
-                        disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed
-                    `}
-                    aria-label={isMuted ? "Ativar som do agente" : "Desativar som do agente"}
-                >
-                    {isMuted ? <VolumeOffIcon className="w-8 h-8" /> : <VolumeUpIcon className="w-8 h-8" />}
-                </button>
-            </div>
+            {isListening ? (
+                <>
+                    <div className="w-full h-28 my-4 relative">
+                        {mediaStream && <WaveformVisualizer stream={mediaStream} isListening={isListening} style={waveformStyle} />}
+                    </div>
+                    <div className="flex items-center justify-center gap-6">
+                        <button
+                            onClick={onToggleListening}
+                            className="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50 btn-danger text-white"
+                            aria-label="Parar de ouvir"
+                        >
+                            <MicrophoneIcon className="w-10 h-10" />
+                        </button>
+                        <button
+                            onClick={onToggleMute}
+                            className={`w-20 h-20 rounded-full flex items-center justify-center transition-colors duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50
+                                ${isMuted
+                                    ? 'bg-slate-600 text-slate-300'
+                                    : 'btn-secondary text-white'
+                                }
+                            `}
+                            aria-label={isMuted ? "Ativar som do agente" : "Desativar som do agente"}
+                        >
+                            {isMuted ? <VolumeOffIcon className="w-10 h-10" /> : <VolumeUpIcon className="w-10 h-10" />}
+                        </button>
+                    </div>
+                </>
+            ) : (
+                <div className="my-4 flex items-center justify-center flex-grow">
+                    <button
+                        onClick={onToggleListening}
+                        className="relative w-36 h-36 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50 btn-primary text-white"
+                        aria-label="Começar a ouvir"
+                    >
+                        <MicrophoneIcon className="w-16 h-16" />
+                    </button>
+                </div>
+            )}
 
-            <div className="w-full bg-primary rounded-lg p-4 min-h-[150px] flex-grow border border-primary">
+
+            <div className="w-full bg-primary rounded-lg p-4 min-h-[150px] mt-auto border border-primary">
                  <h3 className="text-lg font-medium text-primary mb-2">Transcrição em Tempo Real</h3>
                 <p className="text-primary whitespace-pre-wrap">
                     {currentTranscription || <span className="text-tertiary">Aguardando fala...</span>}

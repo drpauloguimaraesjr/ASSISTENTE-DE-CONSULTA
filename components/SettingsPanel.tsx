@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Theme } from '../App';
 
+export type WaveformStyle = 'line' | 'bars';
+export type InsightProvider = 'gemini' | 'openai' | 'grok';
+
 export interface SettingsData {
     prompt: string;
     theme: Theme;
     logoUrl: string | null;
     logoSize: number;
+    waveformStyle: WaveformStyle;
+    insightsProvider: InsightProvider;
+    apiKeys: {
+        gemini: string; // Typically handled by env, but here for consistency
+        openai: string;
+        grok: string;
+    }
 }
 
 interface SettingsPanelProps {
@@ -47,9 +57,21 @@ const themes: { id: Theme; name: string; colors: string[] }[] = [
     { id: 'light', name: 'Claro', colors: ['#2563eb', '#0ea5e9'] },
 ];
 
+const waveformStyles: { id: WaveformStyle; name: string }[] = [
+    { id: 'line', name: 'Linha' },
+    { id: 'bars', name: 'Barras' },
+];
+
+const insightProviders: { id: InsightProvider; name: string }[] = [
+    { id: 'gemini', name: 'Google Gemini' },
+    { id: 'openai', name: 'OpenAI' },
+    { id: 'grok', name: 'Grok (xAI)' },
+];
+
+
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, onSave, onResetPrompt, initialSettings }) => {
     const [settings, setSettings] = useState<SettingsData>(initialSettings);
-    const [activeTab, setActiveTab] = useState<'prompt' | 'appearance'>('prompt');
+    const [activeTab, setActiveTab] = useState<'prompt' | 'appearance' | 'apis'>('prompt');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -111,12 +133,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
 
     const renderAppearanceTab = () => (
         <div className='pt-6'>
-            <div>
+             <div className="border-b border-primary pb-6 mb-6">
                  <h3 className="text-lg font-semibold mb-2 text-primary">Tema Visual</h3>
                 <p className="text-sm text-secondary mb-4">
                     Escolha a aparência do aplicativo.
                 </p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {themes.map(theme => (
                         <button
                             key={theme.id}
@@ -134,7 +156,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                 </div>
             </div>
 
-            <div className="border-t border-primary pt-6 mb-6">
+            <div className="border-b border-primary pb-6 mb-6">
                 <h3 className="text-lg font-semibold mb-2 text-primary">Logomarca</h3>
                 <p className="text-sm text-secondary mb-4">
                    Faça o upload de um arquivo de imagem (PNG, JPG, etc.) para usar como sua logo.
@@ -191,6 +213,80 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                     </div>
                 </div>
             </div>
+
+            <div>
+                 <h3 className="text-lg font-semibold mb-2 text-primary">Estilo da Onda Sonora</h3>
+                 <p className="text-sm text-secondary mb-4">
+                    Escolha o formato do visualizador de áudio durante a gravação.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {waveformStyles.map(style => (
+                        <button
+                            key={style.id}
+                            onClick={() => setSettings(prev => ({...prev, waveformStyle: style.id}))}
+                            className={`p-4 rounded-lg border-2 transition-all duration-200 text-center ${settings.waveformStyle === style.id ? 'border-accent' : 'border-primary hover:border-secondary'}`}
+                        >
+                             <p className={`text-sm font-medium ${settings.waveformStyle === style.id ? 'text-primary' : 'text-secondary'}`}>{style.name}</p>
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderApisTab = () => (
+        <div className='pt-6'>
+            <div className="border-b border-primary pb-6 mb-6">
+                <h3 className="text-lg font-semibold mb-2 text-primary">Provedor de Insights</h3>
+                <p className="text-sm text-secondary mb-4">
+                    Escolha qual modelo de IA será usado para gerar o "Fluxo de Consciência".
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2 rounded-lg bg-primary/50 p-1 border border-secondary w-full sm:w-auto">
+                    {insightProviders.map(provider => (
+                        <button
+                            key={provider.id}
+                            onClick={() => setSettings(prev => ({...prev, insightsProvider: provider.id}))}
+                            className={`flex-1 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${settings.insightsProvider === provider.id ? 'bg-accent text-primary-bg' : 'text-secondary hover:bg-primary'}`}
+                        >
+                            {provider.name}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <div>
+                 <h3 className="text-lg font-semibold mb-2 text-primary">Chaves de API</h3>
+                 <p className="text-sm text-secondary mb-4">
+                    Insira suas chaves de API para os serviços que deseja usar. A chave do Gemini é gerenciada pelo ambiente.
+                </p>
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="openai-key" className="block text-sm font-medium text-secondary mb-1">
+                            Chave da API OpenAI
+                        </label>
+                        <input
+                            id="openai-key"
+                            type="password"
+                            placeholder="sk-..."
+                            value={settings.apiKeys.openai}
+                            onChange={(e) => setSettings(prev => ({...prev, apiKeys: {...prev.apiKeys, openai: e.target.value}}))}
+                            className="w-full bg-primary border border-secondary rounded-md p-2.5 text-sm text-primary focus:ring-2 focus-ring focus:border-accent"
+                        />
+                    </div>
+                     <div>
+                        <label htmlFor="grok-key" className="block text-sm font-medium text-secondary mb-1">
+                            Chave da API Grok (xAI)
+                        </label>
+                        <input
+                            id="grok-key"
+                            type="password"
+                            placeholder="Chave da API..."
+                            value={settings.apiKeys.grok}
+                            onChange={(e) => setSettings(prev => ({...prev, apiKeys: {...prev.apiKeys, grok: e.target.value}}))}
+                            className="w-full bg-primary border border-secondary rounded-md p-2.5 text-sm text-primary focus:ring-2 focus-ring focus:border-accent"
+                        />
+                    </div>
+                </div>
+            </div>
         </div>
     );
 
@@ -219,10 +315,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                             <button onClick={() => setActiveTab('appearance')} className={`py-3 px-1 text-sm font-semibold border-b-2 ${activeTab === 'appearance' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary'}`}>
                                 Aparência
                             </button>
+                             <button onClick={() => setActiveTab('apis')} className={`py-3 px-1 text-sm font-semibold border-b-2 ${activeTab === 'apis' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary'}`}>
+                                APIs
+                            </button>
                         </nav>
                     </div>
 
-                    {activeTab === 'prompt' ? renderPromptTab() : renderAppearanceTab()}
+                    {activeTab === 'prompt' && renderPromptTab()}
+                    {activeTab === 'appearance' && renderAppearanceTab()}
+                    {activeTab === 'apis' && renderApisTab()}
 
                 </main>
 

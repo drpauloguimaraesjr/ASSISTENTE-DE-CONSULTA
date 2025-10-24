@@ -1,10 +1,9 @@
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob as GenAIBlob } from "@google/genai";
 import { ControlsPanel } from './components/ControlsPanel';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { InsightsPanel } from './components/InsightsPanel';
-import { SettingsPanel, SettingsData } from './components/SettingsPanel';
+import { SettingsPanel, SettingsData, WaveformStyle, InsightProvider } from './components/SettingsPanel';
 import { Dashboard } from './components/Dashboard';
 import { generateInsights, generateAnamnesis } from './services/geminiService';
 import { decode, decodeAudioData, createBlob } from './utils/audioUtils';
@@ -104,7 +103,7 @@ Avaliação sistêmica:
 
 const SettingsIcon: React.FC<{className?: string}> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61-.25-1.17-.59-1.69-.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12-.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59-1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22-.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/>
+        <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61-.25-1.17-.59-1.69-.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24-.42-.12-.64l2 3.46c.12-.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59-1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22-.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/>
     </svg>
 );
 
@@ -134,6 +133,10 @@ const App: React.FC = () => {
     const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
     const [logoSize, setLogoSize] = useState<number>(24);
     const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+    const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>('line');
+
+    const [insightsProvider, setInsightsProvider] = useState<InsightProvider>('gemini');
+    const [apiKeys, setApiKeys] = useState({ gemini: '', openai: '', grok: '' });
 
 
     const liveSessionRef = useRef<Session | null>(null);
@@ -162,6 +165,15 @@ const App: React.FC = () => {
 
         const savedLogoSize = localStorage.getItem('logoSize');
         if (savedLogoSize) setLogoSize(parseInt(savedLogoSize, 10));
+        
+        const savedWaveformStyle = localStorage.getItem('waveformStyle') as WaveformStyle;
+        if (savedWaveformStyle) setWaveformStyle(savedWaveformStyle);
+
+        const savedProvider = localStorage.getItem('insightsProvider') as InsightProvider;
+        if (savedProvider) setInsightsProvider(savedProvider);
+
+        const savedApiKeys = localStorage.getItem('apiKeys');
+        if (savedApiKeys) setApiKeys(JSON.parse(savedApiKeys));
 
         const storedSessions = localStorage.getItem('savedSessions');
         if (storedSessions) {
@@ -201,8 +213,16 @@ const App: React.FC = () => {
 
     const generateAndSetInsights = useCallback(async (transcript: string) => {
         setIsGeneratingInsights(true);
+        const apiKey = insightsProvider === 'gemini' ? process.env.API_KEY : apiKeys[insightsProvider];
+        
+        if (!apiKey) {
+            setInsights(prev => [...prev, `Erro: Chave de API para ${insightsProvider} não está configurada.`]);
+            setIsGeneratingInsights(false);
+            return;
+        }
+
         try {
-            const newInsight = await generateInsights(transcript);
+            const newInsight = await generateInsights(transcript, insightsProvider, apiKey);
             setInsights(prev => [...prev, newInsight]);
         } catch (error) {
             console.error('Error generating insights:', error);
@@ -210,7 +230,7 @@ const App: React.FC = () => {
         } finally {
             setIsGeneratingInsights(false);
         }
-    }, []);
+    }, [insightsProvider, apiKeys]);
 
     const generateAndSetAnamnesis = useCallback(async (transcript: string) => {
         if (!transcript) return;
@@ -305,6 +325,12 @@ const App: React.FC = () => {
         setAppState('pre-session');
     };
 
+    const handleDeleteSession = (sessionId: number) => {
+        const updatedSessions = savedSessions.filter(session => session.id !== sessionId);
+        setSavedSessions(updatedSessions);
+        localStorage.setItem('savedSessions', JSON.stringify(updatedSessions));
+    };
+
     const handleToggleMute = useCallback(() => {
         setIsMuted(prev => !prev);
     }, []);
@@ -325,6 +351,15 @@ const App: React.FC = () => {
 
         setLogoSize(settings.logoSize);
         localStorage.setItem('logoSize', settings.logoSize.toString());
+
+        setWaveformStyle(settings.waveformStyle);
+        localStorage.setItem('waveformStyle', settings.waveformStyle);
+
+        setInsightsProvider(settings.insightsProvider);
+        localStorage.setItem('insightsProvider', settings.insightsProvider);
+        
+        setApiKeys(settings.apiKeys);
+        localStorage.setItem('apiKeys', JSON.stringify(settings.apiKeys));
 
         if (transcriptionHistory.length > 0) {
             generateAndSetAnamnesis(transcriptionHistory.join('\n\n'));
@@ -485,6 +520,7 @@ const App: React.FC = () => {
                     onOpenSettings={() => setIsSettingsOpen(true)}
                     logoDataUrl={logoDataUrl}
                     logoSize={logoSize}
+                    onDeleteSession={handleDeleteSession}
                 />
             ) : (
                 <div className="h-screen w-screen flex flex-col text-primary p-4 font-sans">
@@ -524,6 +560,7 @@ const App: React.FC = () => {
                             selectedDeviceId={selectedDeviceId}
                             onDeviceChange={handleDeviceChange}
                             mediaStream={mediaStream}
+                            waveformStyle={waveformStyle}
                         />
                         <InsightsPanel insights={insights} isLoading={isGeneratingInsights} />
                     </main>
@@ -539,6 +576,9 @@ const App: React.FC = () => {
                     theme: theme,
                     logoUrl: logoDataUrl,
                     logoSize: logoSize,
+                    waveformStyle: waveformStyle,
+                    insightsProvider: insightsProvider,
+                    apiKeys: apiKeys,
                 }}
             />
         </>
