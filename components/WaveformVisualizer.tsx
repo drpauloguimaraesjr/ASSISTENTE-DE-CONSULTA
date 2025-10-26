@@ -12,6 +12,32 @@ const getThemeColor = (variableName: string): string => {
     return getComputedStyle(document.body).getPropertyValue(variableName).trim() || '#ffffff';
 };
 
+const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
+};
+
+const rgbToHex = (r: number, g: number, b: number) => {
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+};
+
+const interpolateColor = (color1: string, color2: string, factor: number) => {
+    const rgb1 = hexToRgb(color1);
+    const rgb2 = hexToRgb(color2);
+    if (!rgb1 || !rgb2) return color1;
+
+    const r = Math.round(rgb1.r + factor * (rgb2.r - rgb1.r));
+    const g = Math.round(rgb1.g + factor * (rgb2.g - rgb1.g));
+    const b = Math.round(rgb1.b + factor * (rgb2.b - rgb1.b));
+
+    return rgbToHex(r, g, b);
+};
+
+
 export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({ stream, isListening, style }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
@@ -54,6 +80,7 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({ stream, 
                 canvasCtx.clearRect(0, 0, width, height);
 
                 const accentColor = getThemeColor('--color-text-accent');
+                const peakColor = getThemeColor('--color-waveform-peak');
                 const gradient = canvasCtx.createLinearGradient(0, 0, width, 0);
                 gradient.addColorStop(0, accentColor);
                 gradient.addColorStop(1, getThemeColor('--color-gradient-to'));
@@ -72,8 +99,17 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({ stream, 
                     }
                 } else { // line
                     analyserRef.current.getByteTimeDomainData(dataArrayRef.current);
-                    canvasCtx.lineWidth = 2;
-                    canvasCtx.strokeStyle = accentColor;
+                    
+                    let sum = 0;
+                    for(let i = 0; i < bufferLength; i++) {
+                        sum += Math.abs(dataArrayRef.current[i] - 128);
+                    }
+                    const avg = sum / bufferLength;
+                    const intensity = Math.min(1, avg / 30); // Normalize and cap intensity
+                    const dynamicColor = interpolateColor(accentColor, peakColor, intensity);
+
+                    canvasCtx.lineWidth = 3;
+                    canvasCtx.strokeStyle = dynamicColor;
                     canvasCtx.beginPath();
                     
                     const sliceWidth = width * 1.0 / bufferLength;

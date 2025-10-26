@@ -75,6 +75,13 @@ export const DailySummary: React.FC<DailySummaryProps> = ({ sessions }) => {
                     onClick={handleGenerate}
                     disabled={isLoading || todaySessions.length === 0}
                     className="w-full px-6 py-3 btn-secondary text-white font-bold text-base rounded-md transition-colors focus:outline-none focus:ring-2 focus-ring focus:ring-opacity-50 disabled:bg-slate-600 disabled:cursor-not-allowed"
+                    title={
+                        isLoading 
+                        ? "Aguarde, gerando ideias..." 
+                        : todaySessions.length === 0 
+                        ? "Adicione uma sessão hoje para ativar esta função." 
+                        : "Gerar ideias de conteúdo com base nas sessões de hoje"
+                    }
                 >
                     {isLoading ? 'Gerando...' : 'Gerar Ideias'}
                 </button>

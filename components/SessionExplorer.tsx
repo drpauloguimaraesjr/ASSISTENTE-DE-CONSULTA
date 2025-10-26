@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { SessionData } from '../App';
+import { getPatientName } from '../utils/sessionUtils';
 
 interface SessionExplorerProps {
     sessions: SessionData[];
     onSessionSelect: (session: SessionData) => void;
-    onDeleteSession: (sessionId: number) => void;
+    onDeleteSession: (sessionId: string) => void;
 }
 
 const FolderIcon: React.FC<{className?: string}> = ({ className }) => (
@@ -41,7 +42,10 @@ const groupSessionsByDate = (sessions: SessionData[]): Record<string, SessionDat
 export const SessionExplorer: React.FC<SessionExplorerProps> = ({ sessions, onSessionSelect, onDeleteSession }) => {
     const groupedSessions = groupSessionsByDate(sessions);
     const sortedDates = Object.keys(groupedSessions).sort((a, b) => {
-       return new Date(groupedSessions[b][0].startTime).getTime() - new Date(groupedSessions[a][0].startTime).getTime();
+       // Convert pt-BR date string "dd de MMMM de yyyy" to something Date can parse
+       const dateA = new Date(groupedSessions[a][0].startTime);
+       const dateB = new Date(groupedSessions[b][0].startTime);
+       return dateB.getTime() - dateA.getTime();
     });
 
     const [openFolders, setOpenFolders] = useState<Record<string, boolean>>(() => {
@@ -75,32 +79,37 @@ export const SessionExplorer: React.FC<SessionExplorerProps> = ({ sessions, onSe
                                 <ul className="pl-8 mt-1 border-l-2 border-secondary/50">
                                     {groupedSessions[date]
                                         .sort((a,b) => b.startTime.getTime() - a.startTime.getTime())
-                                        .map(session => (
-                                        <li key={session.id} className="group flex justify-between items-center rounded-md hover:bg-primary/50">
-                                            <button 
-                                                onClick={() => onSessionSelect(session)}
-                                                className="flex-grow flex items-center p-2 text-left transition-colors"
-                                            >
-                                                <FileIcon className="w-5 h-5 mr-2 text-tertiary" />
-                                                <span className="text-secondary text-sm">
-                                                    Consulta às {session.startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                            </button>
-                                             <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (window.confirm('Tem certeza de que deseja apagar esta sessão? Esta ação não pode ser desfeita.')) {
-                                                        onDeleteSession(session.id);
-                                                    }
-                                                }}
-                                                className="p-2 rounded-full text-tertiary hover:text-button-danger-hover hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                aria-label="Apagar sessão"
-                                                title="Apagar sessão"
-                                            >
-                                                <TrashIcon className="w-4 h-4" />
-                                            </button>
-                                        </li>
-                                    ))}
+                                        .map(session => {
+                                            const patientName = getPatientName(session.anamnesis);
+                                            return (
+                                                <li key={session.id} className="group flex justify-between items-center rounded-md hover:bg-primary/50">
+                                                    <button 
+                                                        onClick={() => onSessionSelect(session)}
+                                                        className="flex-grow flex items-center p-2 text-left transition-colors"
+                                                    >
+                                                        <FileIcon className="w-5 h-5 mr-2 text-tertiary" />
+                                                        <span className="text-secondary text-sm truncate">
+                                                            {session.startTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                            <span className="text-tertiary mx-2">-</span>
+                                                            <span className="text-primary font-medium">{patientName || 'Sessão Rápida'}</span>
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (window.confirm('Tem certeza de que deseja apagar esta sessão? Esta ação não pode ser desfeita.')) {
+                                                                onDeleteSession(session.id);
+                                                            }
+                                                        }}
+                                                        className="p-2 rounded-full text-tertiary hover:text-button-danger-hover hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        aria-label="Apagar sessão"
+                                                        title="Apagar sessão"
+                                                    >
+                                                        <TrashIcon className="w-4 h-4" />
+                                                    </button>
+                                                </li>
+                                            );
+                                    })}
                                 </ul>
                             )}
                         </div>

@@ -11,7 +11,11 @@
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.4.0/"
   }
 }
 </script>
@@ -36,6 +40,7 @@
     --color-gradient-from: #60a5fa; /* blue-400 */
     --color-gradient-to: #6366f1; /* indigo-500 */
     --color-spinner: #6366f1; /* indigo-400 */
+    --color-waveform-peak: #818cf8; /* indigo-400 */
   }
   body[data-theme='matrix'] {
     --color-primary-bg: #000000;
@@ -57,6 +62,7 @@
     --color-gradient-from: #00ff00;
     --color-gradient-to: #33ff33;
     --color-spinner: #00ff00;
+    --color-waveform-peak: #ffffff;
   }
   body[data-theme='dusk'] {
     --color-primary-bg: #1e1b4b; /* indigo-950 */
@@ -78,6 +84,7 @@
     --color-gradient-from: #c084fc; /* purple-400 */
     --color-gradient-to: #ec4899; /* pink-500 */
     --color-spinner: #a78bfa; /* violet-400 */
+    --color-waveform-peak: #f472b6; /* pink-400 */
   }
    body[data-theme='light'] {
     --color-primary-bg: #f8fafc; /* slate-50 */
@@ -99,6 +106,7 @@
     --color-gradient-from: #3b82f6; /* blue-500 */
     --color-gradient-to: #0ea5e9; /* sky-500 */
     --color-spinner: #0ea5e9; /* sky-500 */
+    --color-waveform-peak: #fb923c; /* orange-400 */
   }
 
   body { background-color: var(--color-primary-bg); color: var(--color-text-primary); transition: background-color 0.3s, color 0.3s; }
@@ -128,5 +136,12 @@
 <body data-theme="default">
   <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
+  <script>
+    function gapiLoaded() {
+      window.gapiLoaded = true;
+    }
+  </script>
+  <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+  <script async defer src="https://accounts.google.com/gsi/client"></script>
 </body>
 </html>

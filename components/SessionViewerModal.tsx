@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SessionData } from '../App';
+import { getPatientName } from '../utils/sessionUtils';
 
 type Tab = 'transcription' | 'anamnesis';
 
@@ -61,6 +62,7 @@ export const SessionViewerModal: React.FC<SessionViewerModalProps> = ({ isOpen, 
         }
     };
 
+    const patientName = getPatientName(sessionData.anamnesis);
 
     return (
         <div 
@@ -72,7 +74,9 @@ export const SessionViewerModal: React.FC<SessionViewerModalProps> = ({ isOpen, 
                 onClick={(e) => e.stopPropagation()}
             >
                 <header className="flex justify-between items-center p-4 border-b border-primary flex-shrink-0">
-                    <h2 className="text-xl font-bold text-accent">Detalhes da Sessão</h2>
+                    <h2 className="text-xl font-bold text-accent truncate">
+                        Detalhes da Sessão{patientName && `: ${patientName}`}
+                    </h2>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-500/20 transition-colors">
                         <CloseIcon className="w-6 h-6" />
                     </button>

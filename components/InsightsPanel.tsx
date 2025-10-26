@@ -1,8 +1,10 @@
 import React, { useRef, useEffect } from 'react';
+import { InsightProvider } from './SettingsPanel';
 
 interface InsightsPanelProps {
     insights: string[];
     isLoading: boolean;
+    activeInsightsProvider: InsightProvider | null;
 }
 
 const SparkleIcon: React.FC<{className?: string}> = ({ className }) => (
@@ -11,8 +13,14 @@ const SparkleIcon: React.FC<{className?: string}> = ({ className }) => (
     </svg>
 );
 
+const providerNames: Record<InsightProvider, string> = {
+    gemini: 'Google Gemini',
+    openai: 'OpenAI',
+    grok: 'Grok (xAI)',
+};
 
-export const InsightsPanel: React.FC<InsightsPanelProps> = ({ insights, isLoading }) => {
+
+export const InsightsPanel: React.FC<InsightsPanelProps> = ({ insights, isLoading, activeInsightsProvider }) => {
     const endOfInsightsRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -21,7 +29,14 @@ export const InsightsPanel: React.FC<InsightsPanelProps> = ({ insights, isLoadin
 
     return (
         <div className="bg-panel rounded-lg p-6 flex flex-col border border-primary h-full overflow-hidden">
-            <h2 className="text-xl font-semibold text-accent mb-4 flex-shrink-0">Fluxo de Consciência (IA)</h2>
+            <div className="flex justify-between items-center mb-4 flex-shrink-0">
+                <h2 className="text-xl font-semibold text-accent">Fluxo de Consciência (IA)</h2>
+                {activeInsightsProvider && (
+                    <div className="text-xs text-tertiary bg-primary/50 px-2 py-1 rounded">
+                        Usando: {providerNames[activeInsightsProvider]}
+                    </div>
+                )}
+            </div>
             <div className="overflow-y-auto pr-2 flex-grow">
                 {insights.length > 0 ? (
                     insights.map((text, index) => (
