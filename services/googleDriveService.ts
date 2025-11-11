@@ -106,13 +106,12 @@ export interface GDriveSettings {
 // This service handles all interactions with the Google Drive API.
 // It uses the new Google Identity Services (GIS) for authentication and gapi for API calls.
 
-const DRIVE_API_KEY = process.env.API_KEY; // Using Gemini key for Picker, but a separate key is recommended.
+const DRIVE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined; // Recommended to use a dedicated API key.
 const DRIVE_DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
 const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile';
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
 let gapiInited = false;
-let pickerInited = false;
 
 // Waits for the GAPI script to load and initializes it.
 const loadGapi = () => new Promise<void>((resolve, reject) => {
@@ -120,7 +119,13 @@ const loadGapi = () => new Promise<void>((resolve, reject) => {
         resolve();
         return;
     }
+    
+    const MAX_ATTEMPTS = 100; // 10 seconds maximum wait time (100 * 100ms)
+    let attempts = 0;
+    
     const interval = setInterval(() => {
+        attempts++;
+        
         if (window.gapiLoaded) {
             clearInterval(interval);
             window.gapi.load('client:picker', () => {
@@ -131,6 +136,9 @@ const loadGapi = () => new Promise<void>((resolve, reject) => {
                     })
                     .catch(reject);
             });
+        } else if (attempts >= MAX_ATTEMPTS) {
+            clearInterval(interval);
+            reject(new Error('GAPI script failed to load within the timeout period.'));
         }
     }, 100);
 });

@@ -39,12 +39,46 @@ export const InsightsPanel: React.FC<InsightsPanelProps> = ({ insights, isLoadin
             </div>
             <div className="overflow-y-auto pr-2 flex-grow">
                 {insights.length > 0 ? (
-                    insights.map((text, index) => (
-                        <div key={index} className="flex items-start mb-4 animate-fade-in">
-                            <SparkleIcon className="w-4 h-4 spinner-accent mt-1 mr-3 flex-shrink-0" />
-                            <p className="text-secondary italic">{text}</p>
-                        </div>
-                    ))
+                    insights.map((text, index) => {
+                        // Calcula estilos progressivos: último item maior e mais claro, histórico menor e mais apagado
+                        const isLast = index === insights.length - 1;
+                        const distanceFromLast = insights.length - 1 - index;
+                        
+                        // Define classes baseadas na distância do último
+                        let textSizeClass = 'text-lg'; // Último: maior
+                        let textColorClass = 'text-primary font-semibold'; // Último: mais claro
+                        let opacityValue = 1;
+                        
+                        if (distanceFromLast === 1) {
+                            textSizeClass = 'text-base';
+                            textColorClass = 'text-secondary';
+                            opacityValue = 0.8;
+                        } else if (distanceFromLast === 2) {
+                            textSizeClass = 'text-sm';
+                            textColorClass = 'text-secondary';
+                            opacityValue = 0.6;
+                        } else if (distanceFromLast >= 3) {
+                            textSizeClass = 'text-xs';
+                            textColorClass = 'text-tertiary';
+                            opacityValue = 0.4;
+                        }
+                        
+                        return (
+                            <div 
+                                key={index} 
+                                className="flex items-start mb-3 animate-fade-in transition-all duration-500"
+                                style={{ opacity: opacityValue }}
+                            >
+                                <SparkleIcon 
+                                    className={`spinner-accent mt-1 mr-3 flex-shrink-0 w-4 h-4 transition-all duration-500`}
+                                    style={{ opacity: opacityValue }}
+                                />
+                                <p className={`italic ${textSizeClass} ${textColorClass} transition-all duration-500`}>
+                                    {text}
+                                </p>
+                            </div>
+                        );
+                    })
                 ) : (
                      <div className="flex items-center justify-center h-full">
                         <p className="text-tertiary">Ideias e conclusões da IA aparecerão aqui.</p>

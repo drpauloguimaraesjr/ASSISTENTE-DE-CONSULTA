@@ -12,6 +12,9 @@ interface TranscriptionPanelProps {
     anamnesis: string;
     isAnamnesisLoading: boolean;
     sessionInfo: SessionInfo | null;
+    anamnesisMode: 'live' | 'manual';
+    onToggleAnamnesisMode: () => void;
+    onGenerateAnamnesis: () => void;
 }
 
 const DownloadIcon: React.FC<{className?: string}> = ({ className }) => (
@@ -30,7 +33,7 @@ const formatDate = (date: Date) => {
     });
 };
 
-export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ history, anamnesis, isAnamnesisLoading, sessionInfo }) => {
+export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ history, anamnesis, isAnamnesisLoading, sessionInfo, anamnesisMode, onToggleAnamnesisMode, onGenerateAnamnesis }) => {
     const endOfContentRef = useRef<HTMLDivElement>(null);
     const [activeTab, setActiveTab] = useState<Tab>('transcription');
 
@@ -136,13 +139,39 @@ export const TranscriptionPanel: React.FC<TranscriptionPanelProps> = ({ history,
                         <p>Local: {sessionInfo.location ? `${sessionInfo.location.coords.latitude.toFixed(4)}, ${sessionInfo.location.coords.longitude.toFixed(4)}` : 'Não disponível'}</p>
                     </div>
                 )}
+                {/* Controle de modo de anamnese */}
+                <div className="mb-3 flex items-center justify-between bg-primary/30 rounded-md p-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-secondary">Modo Anamnese:</span>
+                        <button
+                            onClick={onToggleAnamnesisMode}
+                            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                                anamnesisMode === 'live' 
+                                    ? 'bg-green-600/30 text-green-300 border border-green-700/40' 
+                                    : 'bg-yellow-600/30 text-yellow-300 border border-yellow-700/40'
+                            }`}
+                        >
+                            {anamnesisMode === 'live' ? '🟢 Ao Vivo' : '⏸️ Manual'}
+                        </button>
+                    </div>
+                    {anamnesisMode === 'manual' && history.length > 0 && (
+                        <button
+                            onClick={onGenerateAnamnesis}
+                            disabled={isAnamnesisLoading}
+                            className="px-3 py-1 text-xs font-medium bg-accent/20 hover:bg-accent/30 border border-accent/40 text-accent rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isAnamnesisLoading ? '⏳ Gerando...' : '✨ Gerar Anamnese'}
+                        </button>
+                    )}
+                </div>
+
                  <div className="mb-4 border-b border-primary">
                     <nav className="flex -mb-px">
                         <button onClick={() => setActiveTab('transcription')} className={`py-2 px-4 text-sm font-medium border-b-2 ${activeTab === 'transcription' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary hover:border-tertiary'}`}>
                             Transcrição Completa
                         </button>
                          <button onClick={() => setActiveTab('anamnesis')} className={`py-2 px-4 text-sm font-medium border-b-2 ${activeTab === 'anamnesis' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary hover:border-tertiary'}`}>
-                            Anamnese em Tempo Real
+                            Anamnese
                         </button>
                     </nav>
                 </div>

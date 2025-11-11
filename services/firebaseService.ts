@@ -24,23 +24,35 @@ import {
 } from 'firebase/firestore';
 import { SessionData } from '../App';
 
-// --- AÇÃO NECESSÁRIA ---
-// Substitua o objeto de configuração abaixo pelo objeto de configuração do seu projeto Firebase.
-// Você pode encontrá-lo nas Configurações do Projeto > Geral > Seus aplicativos > SDK de configuração do Firebase.
+// Firebase config is sourced from Vite env vars. Create a .env.local with VITE_*
+const firebaseConfigFromEnv = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID as string | undefined
+};
+
+// Export placeholder for Firebase configuration (used in SettingsPanel)
 export const firebaseConfigPlaceholder = {
-  apiKey: "AIzaSyBppj3f6TJT01Xjn_cWXhqOvpccge-g6ds",
-  authDomain: "assistente-de-atendiment-d5d1a.firebaseapp.com",
-  projectId: "assistente-de-atendiment-d5d1a",
-  storageBucket: "assistente-de-atendiment-d5d1a.firebasestorage.app",
-  messagingSenderId: "913448523577",
-  appId: "1:913448523577:web:66f6d72cd4d8492870bae8",
-  measurementId: "G-XF46PB6S49"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID",
+  measurementId: "YOUR_MEASUREMENT_ID"
 };
 
 export const isFirebaseConfigured = () => {
-    // FIX: A string original era um literal de string de várias linhas, o que é um erro de sintaxe.
-    // Corrigido para comparar com a chave de API real do placeholder.
-    return firebaseConfigPlaceholder.apiKey !== "COLE_SUA_API_KEY_AQUI";
+    return Boolean(
+        firebaseConfigFromEnv.apiKey &&
+        firebaseConfigFromEnv.authDomain &&
+        firebaseConfigFromEnv.projectId &&
+        firebaseConfigFromEnv.appId
+    );
 };
 
 let app: FirebaseApp | null = null;
@@ -50,7 +62,7 @@ export const initializeApp = () => {
     if (!app && isFirebaseConfigured()) {
         try {
             // Fix: Renamed imported initializeApp to avoid name collision with the exported wrapper function.
-            app = initializeFirebaseApp(firebaseConfigPlaceholder);
+            app = initializeFirebaseApp(firebaseConfigFromEnv as any);
         } catch (error) {
             console.error("Firebase initialization failed:", error);
             // This error is critical. The app won't work without Firebase.

@@ -6,6 +6,7 @@ import { GoogleDriveSettings } from './GoogleDriveSettings';
 import { GDriveSettings } from '../services/googleDriveService';
 import { validateOpenAIApiKey, validateGrokApiKey } from '../services/apiValidationService';
 import { firebaseConfigPlaceholder } from '../services/firebaseService';
+import { TokenStats } from '../services/tokenTracker';
 
 export type WaveformStyle = 'line' | 'bars';
 export type InsightProvider = 'gemini' | 'openai' | 'grok';
@@ -36,6 +37,8 @@ interface SettingsPanelProps {
     initialSettings: SettingsData;
     logs: LogEntry[];
     onClearLogs: () => void;
+    lastError?: string;
+    tokenStats?: TokenStats;
 }
 
 type ValidationStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -108,7 +111,7 @@ const insightProviders: { id: InsightProvider; name: string }[] = [
 ];
 
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, onSave, onResetPrompt, initialSettings, logs, onClearLogs }) => {
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, onSave, onResetPrompt, initialSettings, logs, onClearLogs, lastError, tokenStats }) => {
     const [settings, setSettings] = useState<SettingsData>(initialSettings);
     const [activeTab, setActiveTab] = useState<'firebase' | 'prompt' | 'appearance' | 'apis' | 'integrations' | 'diagnostics'>('firebase');
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -418,11 +421,172 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
         </div>
     );
 
-    const renderDiagnosticsTab = () => (
-        <div className='pt-6'>
-             <LogViewer logs={logs} onClearLogs={onClearLogs} />
-        </div>
-    );
+    const DiagnosticsSection: React.FC<{ logs: LogEntry[]; onClearLogs: () => void; lastError?: string; tokenStats?: TokenStats }> = ({ logs, onClearLogs, lastError, tokenStats }) => {
+        const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt' | 'unsupported'>('prompt');
+
+        useEffect(() => {
+            let isMounted = true;
+            if (navigator?.permissions && (navigator.permissions as any).query) {
+                (navigator.permissions as any).query({ name: 'microphone' as PermissionName })
+                    .then((status: any) => {
+                        if (!isMounted) return;
+                        setMicPermission(status.state);
+                        status.onchange = () => isMounted && setMicPermission(status.state);
+                    })
+                    .catch(() => isMounted && setMicPermission('unsupported'));
+            } else {
+                setMicPermission('unsupported');
+            }
+            return () => { isMounted = false; };
+        }, []);
+
+        const envStatus = {
+            VITE_FIREBASE_API_KEY: Boolean(import.meta.env.VITE_FIREBASE_API_KEY),
+            VITE_FIREBASE_AUTH_DOMAIN: Boolean(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN),
+            VITE_FIREBASE_PROJECT_ID: Boolean(import.meta.env.VITE_FIREBASE_PROJECT_ID),
+            VITE_FIREBASE_APP_ID: Boolean(import.meta.env.VITE_FIREBASE_APP_ID),
+            VITE_GOOGLE_API_KEY: Boolean(import.meta.env.VITE_GOOGLE_API_KEY),
+            VITE_GOOGLE_CLIENT_ID: Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID),
+            VITE_GEMINI_API_KEY: Boolean(import.meta.env.VITE_GEMINI_API_KEY),
+        };
+
+        const badge = (ok: boolean) => (
+            <span className={`px-2 py-0.5 text-xs rounded ${ok ? 'bg-green-600/30 text-green-300 border border-green-700/40' : 'bg-red-600/30 text-red-300 border border-red-700/40'}`}>{ok ? 'OK' : 'Faltando'}</span>
+        );
+
+        const micBadge = (state: typeof micPermission) => {
+            const map: Record<string, { text: string; cls: string }> = {
+                granted: { text: 'granted', cls: 'bg-green-600/30 text-green-300 border border-green-700/40' },
+                denied: { text: 'denied', cls: 'bg-red-600/30 text-red-300 border border-red-700/40' },
+                prompt: { text: 'prompt', cls: 'bg-yellow-600/30 text-yellow-200 border border-yellow-700/40' },
+                unsupported: { text: 'unsupported', cls: 'bg-slate-600/30 text-slate-200 border border-slate-700/40' },
+            };
+            const s = map[state];
+            return <span className={`px-2 py-0.5 text-xs rounded ${s.cls}`}>{s.text}</span>;
+        };
+
+        return (
+            <div className='pt-6 space-y-6'>
+                <div className="p-4 rounded-lg bg-primary/50 border border-primary">
+                    <h3 className="text-lg font-semibold text-primary mb-2">Status do Microfone</h3>
+                    <p className="text-sm text-secondary">Permissão: {micBadge(micPermission)}</p>
+                    <p className="text-xs text-tertiary mt-2">Se estiver "denied", permita o microfone nas permissões do navegador e recarregue a página.</p>
+                </div>
+
+                <div className="p-4 rounded-lg bg-primary/50 border border-primary">
+                    <h3 className="text-lg font-semibold text-primary mb-2">Variáveis de Ambiente (Vite)</h3>
+                    <ul className="text-sm text-secondary space-y-1">
+                        <li>VITE_FIREBASE_API_KEY {badge(envStatus.VITE_FIREBASE_API_KEY)}</li>
+                        <li>VITE_FIREBASE_AUTH_DOMAIN {badge(envStatus.VITE_FIREBASE_AUTH_DOMAIN)}</li>
+                        <li>VITE_FIREBASE_PROJECT_ID {badge(envStatus.VITE_FIREBASE_PROJECT_ID)}</li>
+                        <li>VITE_FIREBASE_APP_ID {badge(envStatus.VITE_FIREBASE_APP_ID)}</li>
+                        <li>VITE_GOOGLE_API_KEY {badge(envStatus.VITE_GOOGLE_API_KEY)}</li>
+                        <li>VITE_GOOGLE_CLIENT_ID {badge(envStatus.VITE_GOOGLE_CLIENT_ID)}</li>
+                        <li>VITE_GEMINI_API_KEY {badge(envStatus.VITE_GEMINI_API_KEY)}</li>
+                    </ul>
+                </div>
+
+                {tokenStats && (
+                    <div className="p-4 rounded-lg bg-primary/50 border border-primary">
+                        <h3 className="text-lg font-semibold text-primary mb-3">Uso de Tokens (Gemini 2.5 Flash)</h3>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                <div className="bg-slate-700/30 rounded p-2">
+                                    <div className="text-tertiary text-xs mb-1">Correções</div>
+                                    <div className="text-primary font-semibold">{tokenStats.corrections.totalTokens.toLocaleString()}</div>
+                                    <div className="text-xs text-secondary mt-1">{tokenStats.callCount.corrections} chamadas</div>
+                                </div>
+                                <div className="bg-slate-700/30 rounded p-2">
+                                    <div className="text-tertiary text-xs mb-1">Insights</div>
+                                    <div className="text-primary font-semibold">{tokenStats.insights.totalTokens.toLocaleString()}</div>
+                                    <div className="text-xs text-secondary mt-1">{tokenStats.callCount.insights} chamadas</div>
+                                </div>
+                                <div className="bg-slate-700/30 rounded p-2">
+                                    <div className="text-tertiary text-xs mb-1">Anamnese</div>
+                                    <div className="text-primary font-semibold">{tokenStats.anamnesis.totalTokens.toLocaleString()}</div>
+                                    <div className="text-xs text-secondary mt-1">{tokenStats.callCount.anamnesis} chamadas</div>
+                                </div>
+                                <div className="bg-accent/20 rounded p-2 border border-accent/40">
+                                    <div className="text-tertiary text-xs mb-1">Total</div>
+                                    <div className="text-accent font-bold text-lg">{tokenStats.total.totalTokens.toLocaleString()}</div>
+                                    <div className="text-xs text-secondary mt-1">
+                                        {tokenStats.total.promptTokens.toLocaleString()} entrada / {tokenStats.total.completionTokens.toLocaleString()} saída
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="text-xs text-tertiary pt-2 border-t border-primary/30">
+                                💡 Estatísticas resetam ao iniciar uma nova sessão. Tokens mostram uso via REST API (mais econômico que Live API).
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="p-4 rounded-lg bg-primary/50 border border-primary">
+                    <h3 className="text-lg font-semibold text-primary mb-2">Último Erro</h3>
+                    <pre className="text-xs whitespace-pre-wrap text-secondary">{lastError || 'Sem erros recentes.'}</pre>
+                </div>
+
+                <div>
+                    <LogViewer logs={logs} onClearLogs={onClearLogs} />
+                </div>
+
+                <div className="p-4 rounded-lg bg-primary/50 border border-primary">
+                    <h3 className="text-lg font-semibold text-primary mb-3">Backup e Exportação</h3>
+                    <div className="space-y-3">
+                        <button
+                            onClick={() => {
+                                try {
+                                    const backupData = localStorage.getItem('transcription_backup');
+                                    const backupTime = localStorage.getItem('transcription_backup_time');
+                                    
+                                    if (!backupData) {
+                                        alert('Nenhum backup encontrado no localStorage.');
+                                        return;
+                                    }
+
+                                    const data = JSON.parse(backupData);
+                                    const timestamp = backupTime ? new Date(parseInt(backupTime)).toLocaleString('pt-BR') : 'Desconhecido';
+                                    
+                                    // Cria arquivo JSON com backup completo
+                                    const exportData = {
+                                        backupTimestamp: timestamp,
+                                        transcriptionHistory: data.transcriptionHistory || [],
+                                        anamnesis: data.anamnesis || '',
+                                        insights: data.insights || [],
+                                        sessionInfo: data.sessionInfo || null,
+                                        logs: logs.map(log => ({
+                                            timestamp: log.timestamp.toISOString(),
+                                            type: log.type,
+                                            message: log.message
+                                        })),
+                                        tokenStats: tokenStats || null
+                                    };
+
+                                    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `backup-transcricao-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                } catch (e) {
+                                    alert(`Erro ao exportar backup: ${e instanceof Error ? e.message : String(e)}`);
+                                }
+                            }}
+                            className="px-4 py-2 bg-accent/20 hover:bg-accent/30 border border-accent/40 text-accent font-medium rounded-md transition-colors text-sm"
+                        >
+                            📥 Baixar Backup Completo (JSON)
+                        </button>
+                        <p className="text-xs text-tertiary">
+                            Exporta transcrições, anamnese, insights, logs e estatísticas de tokens salvos em localStorage. Útil para análise de problemas ou recuperação de dados.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     return (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -449,7 +613,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                     {activeTab === 'appearance' && renderAppearanceTab()}
                     {activeTab === 'apis' && renderApisTab()}
                     {activeTab === 'integrations' && renderIntegrationsTab()}
-                    {activeTab === 'diagnostics' && renderDiagnosticsTab()}
+                    {activeTab === 'diagnostics' && (
+                        <DiagnosticsSection logs={logs} onClearLogs={onClearLogs} lastError={lastError} tokenStats={tokenStats} />
+                    )}
 
                 </main>
 

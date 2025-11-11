@@ -4,7 +4,7 @@ import { WaveformVisualizer, WaveformStyle } from './WaveformVisualizer';
 interface ControlsPanelProps {
     isListening: boolean;
     statusMessage: string;
-    currentTranscription: string;
+    currentTranscription: string | string[];
     onToggleListening: () => void;
     isMuted: boolean;
     onToggleMute: () => void;
@@ -13,6 +13,7 @@ interface ControlsPanelProps {
     onDeviceChange: (deviceId: string) => void;
     mediaStream: MediaStream | null;
     waveformStyle: WaveformStyle;
+    activeBufferIndex?: number;
 }
 
 const MicrophoneIcon: React.FC<{className?: string}> = ({ className }) => (
@@ -35,12 +36,98 @@ const VolumeOffIcon: React.FC<{className?: string}> = ({ className }) => (
 );
 
 
-export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statusMessage, currentTranscription, onToggleListening, isMuted, onToggleMute, audioDevices, selectedDeviceId, onDeviceChange, mediaStream, waveformStyle }) => {
+export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statusMessage, currentTranscription, onToggleListening, isMuted, onToggleMute, audioDevices, selectedDeviceId, onDeviceChange, mediaStream, waveformStyle, activeBufferIndex = 0 }) => {
+    const renderLiveBuffers = () => {
+        if (Array.isArray(currentTranscription)) {
+            // Calcula estado visual de cada buffer baseado no ciclo
+            const getBufferState = (index: number) => {
+                const activeIdx = activeBufferIndex;
+                const diff = (index - activeIdx + 3) % 3;
+                
+                if (diff === 0) {
+                    // Buffer ativo - destacado e brilhante
+                    return { opacity: 1, scale: 1, brightness: 1.2 };
+                } else if (diff === 1) {
+                    // Buffer anterior - menos intenso mas visível
+                    return { opacity: 0.5, scale: 0.98, brightness: 0.7 };
+                } else {
+                    // Buffer mais antigo - desaparece completamente quando terceiro é acionado
+                    return { opacity: 0, scale: 0.95, brightness: 0.2 };
+                }
+            };
+
+            return (
+                <div className="w-full min-h-[150px] mt-auto relative">
+                    <div className="relative min-h-[120px]">
+                        {currentTranscription.map((buf, i) => {
+                            const state = getBufferState(i);
+                            const isEmpty = !buf.trim();
+                            
+                            // Não renderiza se está invisível (opacity 0) ou vazio (exceto o ativo)
+                            if (state.opacity === 0 || (isEmpty && i !== activeBufferIndex)) {
+                                return null;
+                            }
+                            
+                            return (
+                                <div
+                                    key={i}
+                                    className="absolute inset-0 transition-all duration-700 ease-in-out whitespace-pre-wrap break-words"
+                                    style={{
+                                        opacity: state.opacity,
+                                        transform: `scale(${state.scale})`,
+                                        filter: `brightness(${state.brightness})`,
+                                        zIndex: i === activeBufferIndex ? 10 : 5 - i,
+                                        pointerEvents: i === activeBufferIndex ? 'auto' : 'none'
+                                    }}
+                                >
+                                    <span 
+                                        className={`inline-block ${
+                                            i === activeBufferIndex 
+                                                ? 'text-primary font-medium text-base' 
+                                                : 'text-secondary text-sm'
+                                        }`}
+                                    >
+                                        {buf}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                        {/* Placeholder quando tudo está vazio */}
+                        {currentTranscription.every(b => !b.trim()) && (
+                            <div className="text-tertiary text-sm">Aguardando fala...</div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+        return (
+            <div className="w-full min-h-[150px] mt-auto">
+                <p className="text-primary whitespace-pre-wrap">
+                    {currentTranscription || <span className="text-tertiary">Aguardando fala...</span>}
+                </p>
+            </div>
+        );
+    };
+    const getStatusColor = () => {
+        if (statusMessage.includes('Erro') || statusMessage.includes('falhou')) return 'text-red-400';
+        if (statusMessage.includes('Conectando') || statusMessage.includes('Aguardando')) return 'text-yellow-400';
+        if (statusMessage.includes('Ouvindo') || statusMessage.includes('Transcrevendo')) return 'text-green-400';
+        return 'text-secondary';
+    };
+
     return (
         <div className="bg-panel rounded-lg p-6 flex flex-col items-center justify-between border border-primary h-full">
             <div className="text-center w-full">
                 <h2 className="text-xl font-semibold text-accent mb-2">Controle de Áudio</h2>
-                <p className="text-secondary text-sm h-10">{statusMessage}</p>
+                <div className="flex items-center justify-center gap-2 h-10">
+                    {isListening && (
+                        <span className="relative flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        </span>
+                    )}
+                    <p className={`text-sm font-medium ${getStatusColor()}`}>{statusMessage}</p>
+                </div>
             </div>
 
             <div className="w-full max-w-sm my-4">
@@ -108,12 +195,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
             )}
 
 
-            <div className="w-full bg-primary rounded-lg p-4 min-h-[150px] mt-auto border border-primary">
-                 <h3 className="text-lg font-medium text-primary mb-2">Transcrição em Tempo Real</h3>
-                <p className="text-primary whitespace-pre-wrap">
-                    {currentTranscription || <span className="text-tertiary">Aguardando fala...</span>}
-                </p>
-            </div>
+            {renderLiveBuffers()}
         </div>
     );
 };

@@ -9,7 +9,11 @@ import { InsightsPanel } from './components/InsightsPanel';
 import { SettingsPanel, SettingsData, WaveformStyle, InsightProvider, PrebuiltVoice } from './components/SettingsPanel';
 import { GDriveSettings } from './services/googleDriveService';
 import { Dashboard } from './components/Dashboard';
-import { generateInsightsWithFailover, generateAnamnesisWithFailover } from './services/geminiService';
+import { generateInsightsWithFailover, generateAnamnesisWithFailover, correctTranscription } from './services/geminiService';
+import { WebSpeechService } from './services/webSpeechService';
+import { tokenTracker, TokenStats } from './services/tokenTracker';
+import { medicalKnowledgeService } from './services/medicalKnowledgeService';
+import { proceduralMemoryService } from './services/proceduralMemoryService';
 import { decode, decodeAudioData, createBlob } from './utils/audioUtils';
 import { Logo } from './components/Logo';
 import { Clock } from './components/Clock';
@@ -153,13 +157,19 @@ const App: React.FC = () => {
     const [isMuted, setIsMuted] = useState(false);
     const [statusMessage, setStatusMessage] = useState('Pressione Iniciar para começar');
     const [transcriptionHistory, setTranscriptionHistory] = useState<string[]>([]);
-    const [currentTurnTranscription, setCurrentTurnTranscription] = useState('');
+    // Triple-buffer ping-pong for smoother live capture
+    const LIVE_BUFFERS = 3;
+    const [currentTurnTranscriptions, setCurrentTurnTranscriptions] = useState<string[]>(Array(LIVE_BUFFERS).fill(''));
+    const [activeLiveBufferIndex, setActiveLiveBufferIndex] = useState<number>(0);
     
     // AI State
     const [insights, setInsights] = useState<string[]>([]);
     const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+    const [lastError, setLastError] = useState<string | undefined>(undefined);
     const [anamnesis, setAnamnesis] = useState('');
     const [isGeneratingAnamnesis, setIsGeneratingAnamnesis] = useState(false);
+    const [tokenStats, setTokenStats] = useState<TokenStats>(tokenTracker.getStats());
+    const [anamnesisMode, setAnamnesisMode] = useState<'live' | 'manual'>('live'); // Controla se anamnese é preenchida ao vivo ou sob demanda
     
     // UI & Settings State
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -190,11 +200,30 @@ const App: React.FC = () => {
     const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
     const inputAudioContextRef = useRef<AudioContext | null>(null);
     const outputAudioContextRef = useRef<AudioContext | null>(null);
-    const currentTurnRef = useRef('');
+    const currentTurnRefs = useRef<string[]>(Array(LIVE_BUFFERS).fill(''));
+    const activeLiveBufferIndexRef = useRef<number>(0);
     const transcriptionHistoryRef = useRef<string[]>([]);
     const isMutedRef = useRef(isMuted);
     const sourcesRef = useRef(new Set<AudioBufferSourceNode>());
     const nextStartTimeRef = useRef(0);
+    const webSpeechServiceRef = useRef<WebSpeechService | null>(null);
+    // Três instâncias paralelas para redundância máxima
+    const webSpeechServicesRef = useRef<WebSpeechService[]>([]);
+
+    // --- Initialize Knowledge Services ---
+    useEffect(() => {
+        // Load saved knowledge from localStorage
+        medicalKnowledgeService.loadKnowledge();
+        proceduralMemoryService.loadPatterns();
+        
+        // Auto-save periodically
+        const saveInterval = setInterval(() => {
+            medicalKnowledgeService.saveKnowledge();
+            proceduralMemoryService.savePatterns();
+        }, 60000); // Save every minute
+        
+        return () => clearInterval(saveInterval);
+    }, []);
 
     // --- Auth and Data Loading Effect ---
     useEffect(() => {
@@ -251,6 +280,10 @@ const App: React.FC = () => {
             const devices = await navigator.mediaDevices.enumerateDevices();
             const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
             setAudioDevices(audioInputDevices);
+            // Auto-select the first device if none selected yet
+            if (!selectedDeviceId && audioInputDevices.length > 0) {
+                setSelectedDeviceId(audioInputDevices[0].deviceId);
+            }
         } catch (error) {
             console.error("Error enumerating audio devices:", error);
             log('ERROR', 'Falha ao enumerar dispositivos de áudio.');
@@ -266,6 +299,17 @@ const App: React.FC = () => {
         isMutedRef.current = isMuted;
     }, [isMuted]);
 
+    // Populate devices on mount and when devices change (USB headset plugged in, etc.)
+    useEffect(() => {
+        if (navigator?.mediaDevices) {
+            populateAudioDevices();
+            const handleDeviceChange = () => populateAudioDevices();
+            navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+            return () => navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const generateAndSetInsights = useCallback(async (transcript: string) => {
         setIsGeneratingInsights(true);
         try {
@@ -278,7 +322,9 @@ const App: React.FC = () => {
             if (provider) setActiveInsightsProvider(provider);
             log('API', `Insight gerado com sucesso por: ${provider?.toUpperCase() ?? 'N/A'}`);
         } catch (error: any) {
-            log('ERROR', `Erro ao gerar insight: ${error.message}`);
+            const message = error.message || String(error);
+            setLastError(message);
+            log('ERROR', `Erro ao gerar insight: ${message}`);
             setInsights(prev => [...prev, 'Erro ao gerar insight.']);
         } finally {
             setIsGeneratingInsights(false);
@@ -293,20 +339,36 @@ const App: React.FC = () => {
                 transcript,
                 anamnesisPrompt,
                 insightsProvider,
-                { openai: apiKeys.openai, grok: apiKeys.grok }
+                { openai: apiKeys.openai, grok: apiKeys.grok },
+                anamnesis // Pass previous anamnesis for incremental updates
             );
             setAnamnesis(newAnamnesis);
             if (provider) log('API', `Anamnese atualizada por: ${provider.toUpperCase()}`);
         } catch (error: any) {
-            log('ERROR', `Erro ao atualizar anamnese: ${error.message}`);
+            const message = error.message || String(error);
+            setLastError(message);
+            log('ERROR', `Erro ao atualizar anamnese: ${message}`);
             setAnamnesis(prev => prev + '\n\nErro ao atualizar anamnese.');
         } finally {
             setIsGeneratingAnamnesis(false);
         }
-    }, [anamnesisPrompt, insightsProvider, apiKeys, log]);
+    }, [anamnesisPrompt, insightsProvider, apiKeys, log, anamnesis]);
 
     const stopEverything = useCallback(() => {
         log('INFO', 'Parando todos os processos de áudio e API.');
+        // Para todas as 3 instâncias paralelas
+        webSpeechServicesRef.current.forEach((service, index) => {
+            try {
+                service.stop();
+                log('INFO', `Instância ${index} do Web Speech API parada.`);
+            } catch (e) {
+                console.warn(`Erro ao parar instância ${index}:`, e);
+            }
+        });
+        webSpeechServicesRef.current = [];
+        if (webSpeechServiceRef.current) {
+            webSpeechServiceRef.current = null;
+        }
         if (liveSessionRef.current) {
             liveSessionRef.current.close();
             liveSessionRef.current = null;
@@ -333,14 +395,51 @@ const App: React.FC = () => {
         sourcesRef.current.clear();
         setIsListening(false);
         setStatusMessage('Pressione Iniciar para começar');
-        currentTurnRef.current = '';
-        setCurrentTurnTranscription('');
+        // Clear all live buffers
+        currentTurnRefs.current = Array(LIVE_BUFFERS).fill('');
+        setCurrentTurnTranscriptions(Array(LIVE_BUFFERS).fill(''));
+        setActiveLiveBufferIndex(0);
+        activeLiveBufferIndexRef.current = 0;
         nextStartTimeRef.current = 0;
     }, [mediaStream, log]);
+
+    // Atualiza estatísticas de tokens periodicamente
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setTokenStats(tokenTracker.getStats());
+        }, 1000); // Atualiza a cada segundo
+        
+        return () => clearInterval(interval);
+    }, []);
+
+    // Salvamento automático de transcrições em localStorage (backup)
+    useEffect(() => {
+        if (appState === 'in-session' && transcriptionHistory.length > 0) {
+            const backupData = {
+                timestamp: Date.now(),
+                transcriptionHistory,
+                anamnesis,
+                insights,
+                sessionInfo: sessionInfo ? {
+                    startTime: sessionInfo.startTime.toISOString(),
+                    location: sessionInfo.location
+                } : null
+            };
+            
+            try {
+                localStorage.setItem('transcription_backup', JSON.stringify(backupData));
+                localStorage.setItem('transcription_backup_time', Date.now().toString());
+            } catch (e) {
+                console.warn('Falha ao salvar backup de transcrição:', e);
+            }
+        }
+    }, [transcriptionHistory, anamnesis, insights, sessionInfo, appState]);
 
     const handleStartSession = () => {
         log('INFO', 'Iniciando nova sessão.');
         clearLogs();
+        tokenTracker.reset(); // Reseta contadores de tokens
+        setTokenStats(tokenTracker.getStats());
         const startTime = new Date();
         navigator.geolocation.getCurrentPosition(
             (position) => {
@@ -432,7 +531,7 @@ const App: React.FC = () => {
 
         // Reset state and return to dashboard
         setTranscriptionHistory([]);
-        setCurrentTurnTranscription('');
+        setCurrentTurnTranscriptions(Array(LIVE_BUFFERS).fill(''));
         setInsights([]);
         setAnamnesis('');
         setSessionInfo(null);
@@ -497,122 +596,201 @@ const App: React.FC = () => {
         }
     };
 
+    const handleToggleAnamnesisMode = useCallback(() => {
+        setAnamnesisMode(prev => prev === 'live' ? 'manual' : 'live');
+        log('INFO', `Modo de anamnese alterado para: ${anamnesisMode === 'live' ? 'MANUAL' : 'LIVE'}`);
+    }, [anamnesisMode, log]);
+
+    const handleGenerateAnamnesis = useCallback(() => {
+        if (transcriptionHistory.length === 0) {
+            log('WARN', 'Não há transcrição para gerar anamnese.');
+            return;
+        }
+        const fullTranscript = transcriptionHistory.join('\n\n');
+        generateAndSetAnamnesis(fullTranscript);
+        log('INFO', 'Gerando anamnese manualmente...');
+    }, [transcriptionHistory, generateAndSetAnamnesis, log]);
+
     const handleToggleListening = useCallback(async () => {
         if (isListening) {
             stopEverything();
             return;
         }
 
-        if (!process.env.API_KEY) {
-            setStatusMessage('API Key do Gemini não encontrada.');
-            log('ERROR', 'API Key do Gemini não encontrada.');
-            return;
-        }
+        const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
         
         setIsListening(true);
-        setStatusMessage('Conectando...');
+        setStatusMessage('Iniciando transcrição...');
 
         try {
+            // Solicita permissão do microfone primeiro
             const audioConstraints = selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true;
             const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
             mediaStreamRef.current = stream;
             setMediaStream(stream);
             await populateAudioDevices();
 
-            inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-            outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-            nextStartTimeRef.current = 0;
-
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-            const sessionPromise = ai.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-                config: {
-                    responseModalities: [Modality.AUDIO],
-                    inputAudioTranscription: {},
-                    outputAudioTranscription: {},
-                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } }
+            // Cria callback compartilhado para as 3 instâncias
+            const createCallback = (instanceId: number) => ({
+                onStart: () => {
+                    if (instanceId === 0) {
+                        setStatusMessage('🎤 Ouvindo... Fale agora.');
+                        log('INFO', `✅ Web Speech API instância ${instanceId} ATIVA e ouvindo.`);
+                    } else {
+                        log('INFO', `✅ Instância redundante ${instanceId} ativa (backup).`);
+                    }
                 },
-                callbacks: {
-                    onopen: () => {
-                        setStatusMessage('Ouvindo... Fale agora.');
-                        log('API', 'Conexão com a API aberta.');
-                        
-                        const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-                        const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
-                        audioProcessorRef.current = scriptProcessor;
-
-                        scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-                            const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-                            const pcmBlob: GenAIBlob = createBlob(inputData);
-                            sessionPromise.then(session => {
-                                liveSessionRef.current = session;
-                                session.sendRealtimeInput({ media: pcmBlob });
+                onResult: (transcript: string, isFinal: boolean, confidence: number) => {
+                    const idx = activeLiveBufferIndexRef.current;
+                    
+                    if (isFinal) {
+                        // Resultado final - processa em background sem bloquear
+                        if (transcript.trim()) {
+                            // Rotaciona IMEDIATAMENTE para próximo buffer (não espera correção)
+                            const nextIdx = (idx + 1) % LIVE_BUFFERS;
+                            activeLiveBufferIndexRef.current = nextIdx;
+                            setActiveLiveBufferIndex(nextIdx);
+                            currentTurnRefs.current[nextIdx] = '';
+                            
+                            // Mostra transcrição original imediatamente no buffer atual
+                            currentTurnRefs.current[idx] = transcript;
+                            setCurrentTurnTranscriptions(prev => {
+                                const copy = [...prev];
+                                copy[idx] = transcript;
+                                return copy;
                             });
-                        };
-                        source.connect(scriptProcessor);
-                        scriptProcessor.connect(inputAudioContextRef.current!.destination);
-                    },
-                    onmessage: async (message: LiveServerMessage) => {
-                        if (message.serverContent?.inputTranscription) {
-                            const text = message.serverContent.inputTranscription.text;
-                            currentTurnRef.current += text;
-                            setCurrentTurnTranscription(currentTurnRef.current);
+                            
+                            log('INFO', `[Instância ${instanceId}] Transcrição final recebida no buffer ${idx}. Corrigindo em background...`);
+                            
+                            // Processa correção e histórico em background (não bloqueia)
+                            (async () => {
+                                try {
+                                    // Corrige com Gemini 2.5 Flash REST (async, não bloqueia)
+                                    const corrected = await correctTranscription(transcript, GEMINI_API_KEY);
+                                    
+                                    // Atualiza o buffer com versão corrigida
+                                    currentTurnRefs.current[idx] = corrected;
+                                    setCurrentTurnTranscriptions(prev => {
+                                        const copy = [...prev];
+                                        copy[idx] = corrected;
+                                        return copy;
+                                    });
+                                    
+                                    // Adiciona IMEDIATAMENTE ao histórico (transcrição completa) quando corrigido
+                                    const newHistory = [...transcriptionHistoryRef.current, corrected];
+                                    const fullTranscript = newHistory.join('\n\n');
+                                    setTranscriptionHistory(newHistory);
+                                    
+                                    // Limpa o buffer que acabou de ser processado
+                                    currentTurnRefs.current[idx] = '';
+                                    setCurrentTurnTranscriptions(prev => {
+                                        const copy = [...prev];
+                                        copy[idx] = '';
+                                        return copy;
+                                    });
+                                    
+                                    // Gera insights sempre (em background)
+                                    generateAndSetInsights(fullTranscript);
+                                    
+                                    // Gera anamnese APENAS se modo ao vivo estiver ativo
+                                    if (anamnesisMode === 'live') {
+                                        generateAndSetAnamnesis(fullTranscript);
+                                    }
+                                    
+                                    log('API', `Turno de transcrição processado (buffer ${idx} corrigido e movido para histórico).`);
+                                } catch (error: any) {
+                                    // Em caso de erro na correção, usa transcrição original
+                                    const message = error?.message || String(error);
+                                    log('ERROR', `Erro ao corrigir transcrição (buffer ${idx}): ${message}. Usando transcrição original.`);
+                                    
+                                    // Adiciona transcrição original ao histórico se a correção falhar
+                                    const newHistory = [...transcriptionHistoryRef.current, transcript];
+                                    const fullTranscript = newHistory.join('\n\n');
+                                    setTranscriptionHistory(newHistory);
+                                    
+                                    // Limpa o buffer
+                                    currentTurnRefs.current[idx] = '';
+                                    setCurrentTurnTranscriptions(prev => {
+                                        const copy = [...prev];
+                                        copy[idx] = '';
+                                        return copy;
+                                    });
+                                    
+                                    // Processa mesmo com transcrição original
+                                    generateAndSetInsights(fullTranscript);
+                                    
+                                    // Gera anamnese APENAS se estiver em modo LIVE
+                                    if (anamnesisMode === 'live') {
+                                        generateAndSetAnamnesis(fullTranscript);
+                                    }
+                                }
+                            })();
                         }
-                        
-                        if (message.serverContent?.turnComplete) {
-                            const finalTurnText = currentTurnRef.current.trim();
-                            if (finalTurnText) {
-                                log('API', 'Turno de transcrição completo.');
-                                const newHistory = [...transcriptionHistoryRef.current, finalTurnText];
-                                const fullTranscript = newHistory.join('\n\n');
-                                setTranscriptionHistory(newHistory);
-                                generateAndSetInsights(fullTranscript);
-                                generateAndSetAnamnesis(fullTranscript);
-                            }
-                            currentTurnRef.current = '';
-                            setCurrentTurnTranscription('');
+                    } else {
+                        // Resultado intermediário - atualiza visualmente apenas se for da instância principal (0)
+                        if (instanceId === 0) {
+                            currentTurnRefs.current[idx] = transcript;
+                            setCurrentTurnTranscriptions(prev => {
+                                const copy = [...prev];
+                                copy[idx] = transcript;
+                                return copy;
+                            });
                         }
-
-                        const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-                        if (base64Audio && outputAudioContextRef.current && !isMutedRef.current) {
-                           nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputAudioContextRef.current.currentTime);
-                           const audioBuffer = await decodeAudioData(decode(base64Audio), outputAudioContextRef.current, 24000, 1);
-                            const source = outputAudioContextRef.current.createBufferSource();
-                            source.buffer = audioBuffer;
-                            source.connect(outputAudioContextRef.current.destination);
-                            source.addEventListener('ended', () => { sourcesRef.current.delete(source); });
-                            source.start(nextStartTimeRef.current);
-                            nextStartTimeRef.current += audioBuffer.duration;
-                            sourcesRef.current.add(source);
-                        }
-                        
-                        if (message.serverContent?.interrupted) {
-                            log('API', 'Fluxo de áudio interrompido.');
-                            for (const source of sourcesRef.current.values()) {
-                                source.stop();
-                                sourcesRef.current.delete(source);
-                            }
-                            nextStartTimeRef.current = 0;
-                        }
-                    },
-                    onerror: (e: ErrorEvent) => {
-                        setStatusMessage(`Erro de conexão.`);
-                        log('ERROR', `Erro na API: ${e.message}`);
-                        stopEverything();
-                    },
-                    onclose: () => {
-                        log('API', 'Conexão com a API fechada.');
-                        if (isListening) stopEverything();
-                    },
+                    }
                 },
+                onError: (error: string, message: string) => {
+                    const errorType = error === 'silent-freeze' ? 'TRAVAMENTO' : 'ERROR';
+                    if (instanceId === 0) {
+                        if (error === 'silent-freeze') {
+                            setStatusMessage('⚠️ TRAVAMENTO DETECTADO! Reiniciando em 1s...');
+                        } else if (error.includes('restart')) {
+                            setStatusMessage(`🔄 Reiniciando transcrição...`);
+                        } else {
+                            setStatusMessage(`Erro: ${message.substring(0, 60)}...`);
+                        }
+                        setLastError(`[${new Date().toLocaleTimeString()}] ${error}: ${message}`);
+                    }
+                    
+                    // Log detalhado com timestamp e contexto
+                    const sessionTime = sessionInfo 
+                        ? Math.round((Date.now() - sessionInfo.startTime.getTime()) / 1000) 
+                        : 0;
+                    log(errorType, `🔴 [Instância ${instanceId}] [${error}]: ${message} | Tempo sessão: ${sessionTime}s`);
+                },
+                onEnd: () => {
+                    if (isListening && instanceId === 0) {
+                        const timeSinceStart = sessionInfo ? Math.round((Date.now() - sessionInfo.startTime.getTime()) / 1000) : 0;
+                        log('INFO', `🔄 [Instância ${instanceId}] API encerrada. Auto-reiniciando... | Tempo: ${timeSinceStart}s`);
+                        setStatusMessage('🔄 Reconectando...');
+                    }
+                }
             });
+
+            // Cria 3 instâncias paralelas para redundância máxima
+            webSpeechServicesRef.current = [];
+            for (let i = 0; i < 3; i++) {
+                const service = new WebSpeechService(createCallback(i), {
+                    lang: 'pt-BR',
+                    continuous: true,
+                    interimResults: true,
+                    maxAlternatives: 1
+                });
+                webSpeechServicesRef.current.push(service);
+                service.start();
+                log('INFO', `Instância ${i} do Web Speech API iniciada para redundância.`);
+            }
+
+            // Mantém a referência principal para compatibilidade
+            webSpeechServiceRef.current = webSpeechServicesRef.current[0];
+            
         } catch (error: any) {
+            const message = error?.message || String(error);
             setStatusMessage('Erro ao acessar o microfone.');
-            log('ERROR', `Erro ao iniciar a escuta: ${error.message}`);
+            setLastError(message);
+            log('ERROR', `Erro ao iniciar a escuta: ${message}`);
             setIsListening(false);
         }
-    }, [isListening, stopEverything, generateAndSetInsights, generateAndSetAnamnesis, selectedDeviceId, voiceName, log]);
+    }, [isListening, stopEverything, generateAndSetInsights, generateAndSetAnamnesis, selectedDeviceId, log]);
 
     if (authLoading) {
         return (
@@ -684,11 +862,14 @@ const App: React.FC = () => {
                         anamnesis={anamnesis}
                         isAnamnesisLoading={isGeneratingAnamnesis}
                         sessionInfo={sessionInfo}
+                        anamnesisMode={anamnesisMode}
+                        onToggleAnamnesisMode={handleToggleAnamnesisMode}
+                        onGenerateAnamnesis={handleGenerateAnamnesis}
                     />
                     <ControlsPanel 
                         isListening={isListening}
                         statusMessage={statusMessage}
-                        currentTranscription={currentTurnTranscription}
+                        currentTranscription={currentTurnTranscriptions}
                         onToggleListening={handleToggleListening}
                         isMuted={isMuted}
                         onToggleMute={handleToggleMute}
@@ -697,6 +878,7 @@ const App: React.FC = () => {
                         onDeviceChange={handleDeviceChange}
                         mediaStream={mediaStream}
                         waveformStyle={waveformStyle}
+                        activeBufferIndex={activeLiveBufferIndex}
                     />
                     <InsightsPanel insights={insights} isLoading={isGeneratingInsights} activeInsightsProvider={activeInsightsProvider} />
                 </main>
@@ -714,6 +896,8 @@ const App: React.FC = () => {
                 onResetPrompt={handleResetPrompt}
                 logs={logs}
                 onClearLogs={clearLogs}
+                lastError={lastError}
+                tokenStats={tokenStats}
                 initialSettings={{
                     prompt: anamnesisPrompt,
                     theme: theme,
