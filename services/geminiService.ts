@@ -8,7 +8,7 @@ import { tokenTracker } from "./tokenTracker";
 const getGeminiAI = (apiKey?: string) => {
     const finalApiKey = apiKey || import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
     if (!finalApiKey) {
-        throw new Error("API Key for Gemini not found.");
+        throw new Error("API Key for Gemini not found. Configure VITE_GEMINI_API_KEY no arquivo .env.local");
     }
     return new GoogleGenAI({ apiKey: finalApiKey });
 }
@@ -22,32 +22,121 @@ export const correctTranscription = async (
     
     const ai = getGeminiAI(apiKey);
     
-    const prompt = `Você é um assistente de transcrição médica. Corrija e melhore a transcrição abaixo, mantendo o sentido original mas corrigindo:
-- Erros de ortografia e gramática
-- Termos médicos mal escritos
-- Pontuação adequada
-- Formatação clara
+    const prompt = `${rawTranscript}
 
-Mantenha o conteúdo exatamente como foi falado, apenas corrigindo erros. Retorne APENAS a transcrição corrigida, sem comentários.
-
-Transcrição original:
----
-${rawTranscript}
----
-
-Transcrição corrigida:`;
+INSTRUÇÃO: Corrija apenas erros de ortografia, gramática e termos médicos. Retorne SOMENTE o texto corrigido, sem prefixos, explicações ou comentários.`;
     
     try {
         const response: GenerateContentResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.0-flash-exp',
             contents: prompt,
+            config: {
+                temperature: 0.0, // Temperatura zero para resposta completamente determinística
+                maxOutputTokens: 8192,
+                topP: 0.95,
+            },
         });
         
         // Rastreia tokens
         const usage = tokenTracker.extractTokensFromResponse(response);
         tokenTracker.recordCorrection(usage);
         
-        return response.text.trim();
+        // Limpa qualquer texto adicional que possa ter vindo da IA
+        let correctedText = response.text.trim();
+        
+        // Remove prefixos comuns que a IA pode adicionar
+        const prefixesToRemove = [
+            'transcrição corrigida:',
+            'texto corrigido:',
+            'correção:',
+            'aqui está a transcrição corrigida:',
+            'aqui está a correção:',
+            'transcrição:',
+            'texto:',
+            'corrigido:',
+            'versão corrigida:',
+            'correção do texto:',
+        ];
+        
+        // Remove prefixos (case insensitive)
+        for (const prefix of prefixesToRemove) {
+            const lowerText = correctedText.toLowerCase();
+            const lowerPrefix = prefix.toLowerCase();
+            if (lowerText.startsWith(lowerPrefix)) {
+                correctedText = correctedText.substring(prefix.length).trim();
+                break; // Remove apenas o primeiro prefixo encontrado
+            }
+        }
+        
+        // Remove sufixos/explicações comuns
+        const suffixesToRemove = [
+            '\n\n---',
+            '\n---',
+            '\n\nNota:',
+            '\nNota:',
+            '\n\nObservação:',
+            '\nObservação:',
+            '\n\n*',
+            '\n*',
+        ];
+        
+        for (const suffix of suffixesToRemove) {
+            if (correctedText.endsWith(suffix)) {
+                correctedText = correctedText.substring(0, correctedText.length - suffix.length).trim();
+            }
+        }
+        
+        // Remove linhas que parecem ser explicações, notas ou comentários
+        const lines = correctedText.split('\n');
+        const cleanedLines = lines.filter(line => {
+            const trimmed = line.trim();
+            
+            // Remove linhas vazias no início e fim
+            if (!trimmed) return true; // Mantém para estrutura, remove depois se necessário
+            
+            // Remove linhas que parecem ser notas/explicações
+            if (
+                trimmed.startsWith('Nota:') ||
+                trimmed.startsWith('Observação:') ||
+                trimmed.startsWith('*') ||
+                trimmed.startsWith('**') ||
+                trimmed.startsWith('---') ||
+                trimmed === '---' ||
+                trimmed.toLowerCase().includes('correção:') ||
+                trimmed.toLowerCase().includes('nota:') ||
+                trimmed.toLowerCase().includes('observação:')
+            ) {
+                return false;
+            }
+            
+            // Remove linhas que começam com "- " e parecem ser explicações
+            if (trimmed.startsWith('- ') && (
+                trimmed.toLowerCase().includes('erro') ||
+                trimmed.toLowerCase().includes('corrigi') ||
+                trimmed.toLowerCase().includes('adicionei') ||
+                trimmed.toLowerCase().includes('alterei') ||
+                trimmed.toLowerCase().includes('mudei') ||
+                trimmed.toLowerCase().includes('ajustei')
+            )) {
+                return false;
+            }
+            
+            return true;
+        });
+        
+        // Junta as linhas e remove espaços duplicados
+        let finalText = cleanedLines.join('\n').trim();
+        
+        // Remove múltiplas quebras de linha consecutivas
+        finalText = finalText.replace(/\n{3,}/g, '\n\n');
+        
+        // Garante que não ficou vazio após limpeza
+        if (!finalText || finalText.length === 0) {
+            // Se após limpeza ficou vazio, retorna original
+            return rawTranscript;
+        }
+        
+        return finalText;
     } catch (error: any) {
         console.error('Erro ao corrigir transcrição:', error);
         // Retorna original se falhar
@@ -80,8 +169,12 @@ ${transcript}
 Insight Curto:`;
     
     const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash-exp',
         contents: prompt,
+        config: {
+            temperature: 0.2,
+            maxOutputTokens: 4096,
+        },
     });
     
     // Rastreia tokens
@@ -257,7 +350,14 @@ const generateGeminiAnamnesis = async (transcript: string, anamnesisPrompt: stri
     
     prompt += `\n\nTranscrição da Consulta para Análise:\n---\n${transcript}\n---\n\nPreencha o prontuário acima com base na transcrição fornecida:`;
     
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+    const response = await ai.models.generateContent({ 
+        model: 'gemini-2.0-flash-exp',
+        contents: prompt,
+        config: {
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+        },
+    });
     
     // Rastreia tokens
     const usage = tokenTracker.extractTokensFromResponse(response);
@@ -545,8 +645,12 @@ ${fullDayTranscript}
 
     try {
         const response: GenerateContentResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-pro', // Using a more powerful model for better analysis
+            model: 'gemini-2.0-flash-exp', // Using Gemini Flash for faster analysis
             contents: prompt,
+            config: {
+                temperature: 0.3,
+                maxOutputTokens: 8192,
+            },
         });
 
         // Fix: Correctly access the generated text from the response object.
