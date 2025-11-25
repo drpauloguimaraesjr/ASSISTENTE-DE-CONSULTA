@@ -281,6 +281,40 @@ class MedicalKnowledgeService {
             console.error('Failed to load medical knowledge:', error);
         }
     }
+    /**
+     * Get all medical patterns
+     */
+    getPatterns(): MedicalPattern[] {
+        return [...this.knowledge.patterns];
+    }
+
+    /**
+     * Add a new medical pattern
+     */
+    addPattern(pattern: MedicalPattern) {
+        this.knowledge.patterns.push(pattern);
+        this.saveKnowledge();
+    }
+
+    /**
+     * Update an existing medical pattern
+     */
+    updatePattern(index: number, pattern: MedicalPattern) {
+        if (index >= 0 && index < this.knowledge.patterns.length) {
+            this.knowledge.patterns[index] = pattern;
+            this.saveKnowledge();
+        }
+    }
+
+    /**
+     * Delete a medical pattern
+     */
+    deletePattern(index: number) {
+        if (index >= 0 && index < this.knowledge.patterns.length) {
+            this.knowledge.patterns.splice(index, 1);
+            this.saveKnowledge();
+        }
+    }
 }
 
 export const medicalKnowledgeService = new MedicalKnowledgeService();

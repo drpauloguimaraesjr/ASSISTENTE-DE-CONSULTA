@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob as GenAIBlob } from "@google/genai";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { User } from 'firebase/auth';
 import * as firebaseService from './services/firebaseService';
 
@@ -22,6 +23,7 @@ import { useLogger } from './hooks/useLogger';
 import { uploadFile } from './services/googleDriveService';
 import { getPatientName } from './utils/sessionUtils';
 import { LoginScreen } from './components/LoginScreen';
+import { KnowledgePanel } from './components/KnowledgePanel';
 
 type Session = Awaited<ReturnType<GoogleGenAI['live']['connect']>>;
 
@@ -132,16 +134,16 @@ Avaliação sistêmica:
 (anotações livres, suspeitas diagnósticas, diagnósticos diferenciais, condutas iniciais)
 ---`;
 
-const SettingsIcon: React.FC<{className?: string}> = ({ className }) => (
+const SettingsIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61-.25-1.17-.59-1.69-.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19-.15-.24-.42-.12-.64l2 3.46c.12-.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59-1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22-.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/>
+        <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61-.25-1.17-.59-1.69-.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19-.15-.24-.42-.12-.64l2 3.46c.12-.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59-1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22-.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" />
     </svg>
 );
 
 
 const App: React.FC = () => {
     const { logs, log, clearLogs } = useLogger();
-    
+
     // Auth State
     const [user, setUser] = useState<User | null>(null);
     const [isGuest, setIsGuest] = useState(false);
@@ -161,7 +163,7 @@ const App: React.FC = () => {
     const LIVE_BUFFERS = 3;
     const [currentTurnTranscriptions, setCurrentTurnTranscriptions] = useState<string[]>(Array(LIVE_BUFFERS).fill(''));
     const [activeLiveBufferIndex, setActiveLiveBufferIndex] = useState<number>(0);
-    
+
     // AI State
     const [insights, setInsights] = useState<string[]>([]);
     const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
@@ -170,7 +172,8 @@ const App: React.FC = () => {
     const [isGeneratingAnamnesis, setIsGeneratingAnamnesis] = useState(false);
     const [tokenStats, setTokenStats] = useState<TokenStats>(tokenTracker.getStats());
     const [anamnesisMode, setAnamnesisMode] = useState<'live' | 'manual'>('live'); // Controla se anamnese é preenchida ao vivo ou sob demanda
-    
+    const [isKnowledgePanelOpen, setIsKnowledgePanelOpen] = useState(false);
+
     // UI & Settings State
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [anamnesisPrompt, setAnamnesisPrompt] = useState<string>(DEFAULT_ANAMNESIS_PROMPT);
@@ -215,13 +218,13 @@ const App: React.FC = () => {
         // Load saved knowledge from localStorage
         medicalKnowledgeService.loadKnowledge();
         proceduralMemoryService.loadPatterns();
-        
+
         // Auto-save periodically
         const saveInterval = setInterval(() => {
             medicalKnowledgeService.saveKnowledge();
             proceduralMemoryService.savePatterns();
         }, 60000); // Save every minute
-        
+
         return () => clearInterval(saveInterval);
     }, []);
 
@@ -237,7 +240,7 @@ const App: React.FC = () => {
                     setUser(firebaseUser);
                     setIsGuest(false);
                     log('INFO', `Usuário ${firebaseUser.email} autenticado.`);
-                    
+
                     const userSettings = await firebaseService.fetchUserSettings(firebaseUser.uid);
                     if (userSettings) {
                         setAnamnesisPrompt(userSettings.prompt || DEFAULT_ANAMNESIS_PROMPT);
@@ -270,7 +273,7 @@ const App: React.FC = () => {
     }, [log]);
 
 
-     useEffect(() => {
+    useEffect(() => {
         document.body.setAttribute('data-theme', theme);
     }, [theme]);
 
@@ -295,7 +298,7 @@ const App: React.FC = () => {
         transcriptionHistoryRef.current = transcriptionHistory;
     }, [transcriptionHistory]);
 
-     useEffect(() => {
+    useEffect(() => {
         isMutedRef.current = isMuted;
     }, [isMuted]);
 
@@ -307,7 +310,7 @@ const App: React.FC = () => {
             navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
             return () => navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const generateAndSetInsights = useCallback(async (transcript: string) => {
@@ -377,7 +380,7 @@ const App: React.FC = () => {
             mediaStreamRef.current.getTracks().forEach(track => track.stop());
             mediaStreamRef.current = null;
         }
-        if(mediaStream){
+        if (mediaStream) {
             mediaStream.getTracks().forEach(track => track.stop());
             setMediaStream(null);
         }
@@ -388,7 +391,7 @@ const App: React.FC = () => {
         if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
             inputAudioContextRef.current.close();
         }
-         if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
+        if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
             outputAudioContextRef.current.close();
         }
         sourcesRef.current.forEach(source => source.stop());
@@ -408,7 +411,7 @@ const App: React.FC = () => {
         const interval = setInterval(() => {
             setTokenStats(tokenTracker.getStats());
         }, 1000); // Atualiza a cada segundo
-        
+
         return () => clearInterval(interval);
     }, []);
 
@@ -425,7 +428,7 @@ const App: React.FC = () => {
                     location: sessionInfo.location
                 } : null
             };
-            
+
             try {
                 localStorage.setItem('transcription_backup', JSON.stringify(backupData));
                 localStorage.setItem('transcription_backup_time', Date.now().toString());
@@ -492,7 +495,7 @@ const App: React.FC = () => {
             log('INFO', 'Sessão encerrada pois não continha dados (transcrição ou anamnese).');
         } else {
             log('INFO', 'Salvando dados da sessão.');
-            
+
             // Convert GeolocationPosition to a serializable object for Firestore
             const locationData: SerializableLocation | null = sessionInfo?.location ? {
                 coords: {
@@ -514,7 +517,7 @@ const App: React.FC = () => {
                 transcriptionHistory: transcriptionHistory,
                 anamnesis: anamnesis,
             };
-            
+
             try {
                 const newSessionId = await firebaseService.saveSession(user.uid, sessionData);
                 if (newSessionId) {
@@ -618,7 +621,7 @@ const App: React.FC = () => {
         }
 
         const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
-        
+
         setIsListening(true);
         setStatusMessage('Iniciando transcrição...');
 
@@ -642,7 +645,7 @@ const App: React.FC = () => {
                 },
                 onResult: (transcript: string, isFinal: boolean, confidence: number) => {
                     const idx = activeLiveBufferIndexRef.current;
-                    
+
                     if (isFinal) {
                         // Resultado final - processa em background sem bloquear
                         if (transcript.trim()) {
@@ -651,7 +654,7 @@ const App: React.FC = () => {
                             activeLiveBufferIndexRef.current = nextIdx;
                             setActiveLiveBufferIndex(nextIdx);
                             currentTurnRefs.current[nextIdx] = '';
-                            
+
                             // Mostra transcrição original imediatamente no buffer atual
                             currentTurnRefs.current[idx] = transcript;
                             setCurrentTurnTranscriptions(prev => {
@@ -659,15 +662,15 @@ const App: React.FC = () => {
                                 copy[idx] = transcript;
                                 return copy;
                             });
-                            
+
                             log('INFO', `[Instância ${instanceId}] Transcrição final recebida no buffer ${idx}. Corrigindo em background...`);
-                            
+
                             // Processa correção e histórico em background (não bloqueia)
                             (async () => {
                                 try {
                                     // Corrige com Gemini 2.5 Flash REST (async, não bloqueia)
                                     const corrected = await correctTranscription(transcript, GEMINI_API_KEY);
-                                    
+
                                     // Atualiza o buffer com versão corrigida
                                     currentTurnRefs.current[idx] = corrected;
                                     setCurrentTurnTranscriptions(prev => {
@@ -675,12 +678,12 @@ const App: React.FC = () => {
                                         copy[idx] = corrected;
                                         return copy;
                                     });
-                                    
+
                                     // Adiciona IMEDIATAMENTE ao histórico (transcrição completa) quando corrigido
                                     const newHistory = [...transcriptionHistoryRef.current, corrected];
                                     const fullTranscript = newHistory.join('\n\n');
                                     setTranscriptionHistory(newHistory);
-                                    
+
                                     // Limpa o buffer que acabou de ser processado
                                     currentTurnRefs.current[idx] = '';
                                     setCurrentTurnTranscriptions(prev => {
@@ -688,26 +691,26 @@ const App: React.FC = () => {
                                         copy[idx] = '';
                                         return copy;
                                     });
-                                    
+
                                     // Gera insights sempre (em background)
                                     generateAndSetInsights(fullTranscript);
-                                    
+
                                     // Gera anamnese APENAS se modo ao vivo estiver ativo
                                     if (anamnesisMode === 'live') {
                                         generateAndSetAnamnesis(fullTranscript);
                                     }
-                                    
+
                                     log('API', `Turno de transcrição processado (buffer ${idx} corrigido e movido para histórico).`);
                                 } catch (error: any) {
                                     // Em caso de erro na correção, usa transcrição original
                                     const message = error?.message || String(error);
                                     log('ERROR', `Erro ao corrigir transcrição (buffer ${idx}): ${message}. Usando transcrição original.`);
-                                    
+
                                     // Adiciona transcrição original ao histórico se a correção falhar
                                     const newHistory = [...transcriptionHistoryRef.current, transcript];
                                     const fullTranscript = newHistory.join('\n\n');
                                     setTranscriptionHistory(newHistory);
-                                    
+
                                     // Limpa o buffer
                                     currentTurnRefs.current[idx] = '';
                                     setCurrentTurnTranscriptions(prev => {
@@ -715,10 +718,10 @@ const App: React.FC = () => {
                                         copy[idx] = '';
                                         return copy;
                                     });
-                                    
+
                                     // Processa mesmo com transcrição original
                                     generateAndSetInsights(fullTranscript);
-                                    
+
                                     // Gera anamnese APENAS se estiver em modo LIVE
                                     if (anamnesisMode === 'live') {
                                         generateAndSetAnamnesis(fullTranscript);
@@ -750,10 +753,10 @@ const App: React.FC = () => {
                         }
                         setLastError(`[${new Date().toLocaleTimeString()}] ${error}: ${message}`);
                     }
-                    
+
                     // Log detalhado com timestamp e contexto
-                    const sessionTime = sessionInfo 
-                        ? Math.round((Date.now() - sessionInfo.startTime.getTime()) / 1000) 
+                    const sessionTime = sessionInfo
+                        ? Math.round((Date.now() - sessionInfo.startTime.getTime()) / 1000)
                         : 0;
                     log(errorType, `🔴 [Instância ${instanceId}] [${error}]: ${message} | Tempo sessão: ${sessionTime}s`);
                 },
@@ -782,7 +785,7 @@ const App: React.FC = () => {
 
             // Mantém a referência principal para compatibilidade
             webSpeechServiceRef.current = webSpeechServicesRef.current[0];
-            
+
         } catch (error: any) {
             const message = error?.message || String(error);
             setStatusMessage('Erro ao acessar o microfone.');
@@ -802,7 +805,7 @@ const App: React.FC = () => {
             </div>
         );
     }
-    
+
     let mainContent;
     if (!user && !isGuest) {
         mainContent = (
@@ -815,7 +818,7 @@ const App: React.FC = () => {
         );
     } else if (appState === 'pre-session') {
         mainContent = (
-            <Dashboard 
+            <Dashboard
                 user={user}
                 isGuest={isGuest}
                 onLoginRequest={() => setIsGuest(false)}
@@ -832,9 +835,9 @@ const App: React.FC = () => {
             <div className="h-screen w-screen flex flex-col text-primary font-sans overflow-hidden">
                 <header className="flex-shrink-0 p-4 flex justify-between items-center gap-4 border-b border-primary">
                     <div className="flex-1">
-                         <Logo logoDataUrl={logoDataUrl} size={logoSize} />
+                        <Logo logoDataUrl={logoDataUrl} size={logoSize} />
                     </div>
-                   
+
                     <div className="hidden md:flex flex-1 justify-center items-center gap-6">
                         <Clock />
                         <SessionTimer startTime={sessionInfo!.startTime} />
@@ -847,7 +850,7 @@ const App: React.FC = () => {
                         >
                             Encerrar Sessão
                         </button>
-                        <button 
+                        <button
                             onClick={() => setIsSettingsOpen(true)}
                             className="p-2 text-secondary hover:text-primary transition-colors"
                             aria-label="Abrir configurações"
@@ -857,7 +860,7 @@ const App: React.FC = () => {
                     </div>
                 </header>
                 <main className="flex-grow p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
-                    <TranscriptionPanel 
+                    <TranscriptionPanel
                         history={transcriptionHistory}
                         anamnesis={anamnesis}
                         isAnamnesisLoading={isGeneratingAnamnesis}
@@ -866,7 +869,7 @@ const App: React.FC = () => {
                         onToggleAnamnesisMode={handleToggleAnamnesisMode}
                         onGenerateAnamnesis={handleGenerateAnamnesis}
                     />
-                    <ControlsPanel 
+                    <ControlsPanel
                         isListening={isListening}
                         statusMessage={statusMessage}
                         currentTranscription={currentTurnTranscriptions}
@@ -889,27 +892,51 @@ const App: React.FC = () => {
     return (
         <>
             {mainContent}
-            <SettingsPanel 
+
+            <SettingsPanel
                 isOpen={isSettingsOpen}
                 onClose={() => setIsSettingsOpen(false)}
                 onSave={handleSaveSettings}
+                initialData={{
+                    prompt: anamnesisPrompt,
+                    theme,
+                    logoUrl: logoDataUrl,
+                    logoSize,
+                    waveformStyle,
+                    voiceName,
+                    insightsProvider,
+                    apiKeys,
+                    gdrive: gdriveSettings,
+                    selectedDeviceId
+                }}
+                audioDevices={audioDevices}
                 onResetPrompt={handleResetPrompt}
                 logs={logs}
                 onClearLogs={clearLogs}
                 lastError={lastError}
                 tokenStats={tokenStats}
-                initialSettings={{
-                    prompt: anamnesisPrompt,
-                    theme: theme,
-                    logoUrl: logoDataUrl,
-                    logoSize: logoSize,
-                    waveformStyle: waveformStyle,
-                    voiceName: voiceName,
-                    insightsProvider: insightsProvider,
-                    apiKeys: apiKeys,
-                    gdrive: gdriveSettings,
-                }}
             />
+
+            <KnowledgePanel
+                isOpen={isKnowledgePanelOpen}
+                onClose={() => setIsKnowledgePanelOpen(false)}
+            />
+
+            {/* Floating Action Button for Knowledge Base */}
+            <button
+                onClick={() => setIsKnowledgePanelOpen(true)}
+                className="fixed bottom-6 left-6 z-40 p-3 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-full shadow-lg hover:shadow-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all border border-gray-200 dark:border-gray-700 group"
+                title="Base de Conhecimento"
+            >
+                <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-max bg-gray-900 text-white text-xs px-2 py-1 rounded shadow-lg">
+                    Gerenciar Conhecimento
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                </svg>
+            </button>
+            <SpeedInsights />
         </>
     );
 };

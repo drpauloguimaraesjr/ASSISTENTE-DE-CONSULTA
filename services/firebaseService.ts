@@ -1,13 +1,13 @@
 import { initializeApp as initializeFirebaseApp, FirebaseApp } from 'firebase/app';
-import { 
-    getAuth, 
-    onAuthStateChanged as firebaseOnAuthStateChanged, 
-    GoogleAuthProvider, 
-    signInWithPopup, 
+import {
+    getAuth,
+    onAuthStateChanged as firebaseOnAuthStateChanged,
+    GoogleAuthProvider,
+    signInWithPopup,
     signOut as firebaseSignOut,
     User
 } from 'firebase/auth';
-import { 
+import {
     getFirestore,
     doc,
     setDoc,
@@ -26,24 +26,24 @@ import { SessionData } from '../App';
 
 // Firebase config is sourced from Vite env vars. Create a .env.local with VITE_*
 const firebaseConfigFromEnv = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID as string | undefined
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBppj3f6TJT01Xjn_cWXhqOvpccge-g6ds",
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "assistente-de-atendiment-d5d1a.firebaseapp.com",
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "assistente-de-atendiment-d5d1a",
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "assistente-de-atendiment-d5d1a.firebasestorage.app",
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "913448523577",
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:913448523577:web:66f6d72cd4d8492870bae8",
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-XF46PB6S49"
 };
 
 // Export placeholder for Firebase configuration (used in SettingsPanel)
 export const firebaseConfigPlaceholder = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID",
-  measurementId: "YOUR_MEASUREMENT_ID"
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID",
+    measurementId: "YOUR_MEASUREMENT_ID"
 };
 
 export const isFirebaseConfigured = () => {
@@ -76,7 +76,7 @@ export const initializeApp = () => {
 export const onAuthStateChanged = (callback: (user: User | null) => void) => {
     if (!app) {
         console.warn("Firebase not initialized, cannot set up auth state listener. This is expected if Firebase is not configured.");
-        return () => {}; // Return a no-op unsubscribe function
+        return () => { }; // Return a no-op unsubscribe function
     }
     const auth = getAuth(app);
     return firebaseOnAuthStateChanged(auth, callback);
@@ -137,7 +137,7 @@ const convertTimestampsToDates = (docData: DocumentData): SessionData => {
 export const saveSession = async (uid: string, sessionData: Omit<SessionData, 'id'>) => {
     const db = getDb();
     const sessionsColRef = collection(db, 'users', uid, 'sessions');
-    
+
     // Convert Dates to Firestore Timestamps for proper indexing
     const dataToSave = {
         ...sessionData,
@@ -154,7 +154,7 @@ export const fetchSessions = async (uid: string): Promise<SessionData[]> => {
     const db = getDb();
     const sessionsColRef = collection(db, 'users', uid, 'sessions');
     const q = query(sessionsColRef, orderBy('startTime', 'desc'));
-    
+
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => {
         const data = convertTimestampsToDates(doc.data());
