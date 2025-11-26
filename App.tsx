@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Blob as GenAIBlob } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { User } from 'firebase/auth';
 import * as firebaseService from './services/firebaseService';
@@ -10,12 +10,11 @@ import { InsightsPanel } from './components/InsightsPanel';
 import { SettingsPanel, SettingsData, WaveformStyle, InsightProvider, PrebuiltVoice } from './components/SettingsPanel';
 import { GDriveSettings } from './services/googleDriveService';
 import { Dashboard } from './components/Dashboard';
-import { generateInsightsWithFailover, generateAnamnesisWithFailover, correctTranscription } from './services/geminiService';
-import { WebSpeechService } from './services/webSpeechService';
+import { generateInsightsWithFailover, generateAnamnesisWithFailover } from './services/geminiService';
+import { GeminiLiveService } from './services/geminiLiveService'; // NEW SERVICE
 import { tokenTracker, TokenStats } from './services/tokenTracker';
 import { medicalKnowledgeService } from './services/medicalKnowledgeService';
 import { proceduralMemoryService } from './services/proceduralMemoryService';
-import { decode, decodeAudioData, createBlob } from './utils/audioUtils';
 import { Logo } from './components/Logo';
 import { Clock } from './components/Clock';
 import { SessionTimer } from './components/SessionTimer';
@@ -24,8 +23,6 @@ import { uploadFile } from './services/googleDriveService';
 import { getPatientName } from './utils/sessionUtils';
 import { LoginScreen } from './components/LoginScreen';
 import { KnowledgePanel } from './components/KnowledgePanel';
-
-type Session = Awaited<ReturnType<GoogleGenAI['live']['connect']>>;
 
 type AppState = 'pre-session' | 'in-session';
 export type Theme = 'default' | 'matrix' | 'dusk' | 'light';
@@ -159,10 +156,9 @@ const App: React.FC = () => {
     const [isMuted, setIsMuted] = useState(false);
     const [statusMessage, setStatusMessage] = useState('Pressione Iniciar para começar');
     const [transcriptionHistory, setTranscriptionHistory] = useState<string[]>([]);
-    // Triple-buffer ping-pong for smoother live capture
-    const LIVE_BUFFERS = 3;
-    const [currentTurnTranscriptions, setCurrentTurnTranscriptions] = useState<string[]>(Array(LIVE_BUFFERS).fill(''));
-    const [activeLiveBufferIndex, setActiveLiveBufferIndex] = useState<number>(0);
+
+    // Gemini Live State
+    const [currentLiveTranscript, setCurrentLiveTranscript] = useState('');
 
     // AI State
     const [insights, setInsights] = useState<string[]>([]);
@@ -171,7 +167,7 @@ const App: React.FC = () => {
     const [anamnesis, setAnamnesis] = useState('');
     const [isGeneratingAnamnesis, setIsGeneratingAnamnesis] = useState(false);
     const [tokenStats, setTokenStats] = useState<TokenStats>(tokenTracker.getStats());
-    const [anamnesisMode, setAnamnesisMode] = useState<'live' | 'manual'>('live'); // Controla se anamnese é preenchida ao vivo ou sob demanda
+    const [anamnesisMode, setAnamnesisMode] = useState<'live' | 'manual'>('live');
     const [isKnowledgePanelOpen, setIsKnowledgePanelOpen] = useState(false);
 
     // UI & Settings State
@@ -197,34 +193,18 @@ const App: React.FC = () => {
         token: null,
     });
 
-
-    const liveSessionRef = useRef<Session | null>(null);
-    const mediaStreamRef = useRef<MediaStream | null>(null);
-    const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
-    const inputAudioContextRef = useRef<AudioContext | null>(null);
-    const outputAudioContextRef = useRef<AudioContext | null>(null);
-    const currentTurnRefs = useRef<string[]>(Array(LIVE_BUFFERS).fill(''));
-    const activeLiveBufferIndexRef = useRef<number>(0);
+    // Refs
     const transcriptionHistoryRef = useRef<string[]>([]);
-    const isMutedRef = useRef(isMuted);
-    const sourcesRef = useRef(new Set<AudioBufferSourceNode>());
-    const nextStartTimeRef = useRef(0);
-    const webSpeechServiceRef = useRef<WebSpeechService | null>(null);
-    // Três instâncias paralelas para redundância máxima
-    const webSpeechServicesRef = useRef<WebSpeechService[]>([]);
+    const geminiLiveServiceRef = useRef<GeminiLiveService | null>(null);
 
     // --- Initialize Knowledge Services ---
     useEffect(() => {
-        // Load saved knowledge from localStorage
         medicalKnowledgeService.loadKnowledge();
         proceduralMemoryService.loadPatterns();
-
-        // Auto-save periodically
         const saveInterval = setInterval(() => {
             medicalKnowledgeService.saveKnowledge();
             proceduralMemoryService.savePatterns();
-        }, 60000); // Save every minute
-
+        }, 60000);
         return () => clearInterval(saveInterval);
     }, []);
 
@@ -283,7 +263,6 @@ const App: React.FC = () => {
             const devices = await navigator.mediaDevices.enumerateDevices();
             const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
             setAudioDevices(audioInputDevices);
-            // Auto-select the first device if none selected yet
             if (!selectedDeviceId && audioInputDevices.length > 0) {
                 setSelectedDeviceId(audioInputDevices[0].deviceId);
             }
@@ -298,11 +277,7 @@ const App: React.FC = () => {
         transcriptionHistoryRef.current = transcriptionHistory;
     }, [transcriptionHistory]);
 
-    useEffect(() => {
-        isMutedRef.current = isMuted;
-    }, [isMuted]);
-
-    // Populate devices on mount and when devices change (USB headset plugged in, etc.)
+    // Populate devices on mount
     useEffect(() => {
         if (navigator?.mediaDevices) {
             populateAudioDevices();
@@ -310,7 +285,6 @@ const App: React.FC = () => {
             navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
             return () => navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const generateAndSetInsights = useCallback(async (transcript: string) => {
@@ -343,7 +317,7 @@ const App: React.FC = () => {
                 anamnesisPrompt,
                 insightsProvider,
                 { openai: apiKeys.openai, grok: apiKeys.grok },
-                anamnesis // Pass previous anamnesis for incremental updates
+                anamnesis
             );
             setAnamnesis(newAnamnesis);
             if (provider) log('API', `Anamnese atualizada por: ${provider.toUpperCase()}`);
@@ -358,60 +332,28 @@ const App: React.FC = () => {
     }, [anamnesisPrompt, insightsProvider, apiKeys, log, anamnesis]);
 
     const stopEverything = useCallback(() => {
-        log('INFO', 'Parando todos os processos de áudio e API.');
-        // Para todas as 3 instâncias paralelas
-        webSpeechServicesRef.current.forEach((service, index) => {
-            try {
-                service.stop();
-                log('INFO', `Instância ${index} do Web Speech API parada.`);
-            } catch (e) {
-                console.warn(`Erro ao parar instância ${index}:`, e);
-            }
-        });
-        webSpeechServicesRef.current = [];
-        if (webSpeechServiceRef.current) {
-            webSpeechServiceRef.current = null;
+        log('INFO', 'Parando Gemini Live e processos...');
+
+        if (geminiLiveServiceRef.current) {
+            geminiLiveServiceRef.current.disconnect();
+            geminiLiveServiceRef.current = null;
         }
-        if (liveSessionRef.current) {
-            liveSessionRef.current.close();
-            liveSessionRef.current = null;
-        }
-        if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach(track => track.stop());
-            mediaStreamRef.current = null;
-        }
+
         if (mediaStream) {
             mediaStream.getTracks().forEach(track => track.stop());
             setMediaStream(null);
         }
-        if (audioProcessorRef.current) {
-            audioProcessorRef.current.disconnect();
-            audioProcessorRef.current = null;
-        }
-        if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
-            inputAudioContextRef.current.close();
-        }
-        if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
-            outputAudioContextRef.current.close();
-        }
-        sourcesRef.current.forEach(source => source.stop());
-        sourcesRef.current.clear();
+
         setIsListening(false);
         setStatusMessage('Pressione Iniciar para começar');
-        // Clear all live buffers
-        currentTurnRefs.current = Array(LIVE_BUFFERS).fill('');
-        setCurrentTurnTranscriptions(Array(LIVE_BUFFERS).fill(''));
-        setActiveLiveBufferIndex(0);
-        activeLiveBufferIndexRef.current = 0;
-        nextStartTimeRef.current = 0;
+        setCurrentLiveTranscript('');
     }, [mediaStream, log]);
 
     // Atualiza estatísticas de tokens periodicamente
     useEffect(() => {
         const interval = setInterval(() => {
             setTokenStats(tokenTracker.getStats());
-        }, 1000); // Atualiza a cada segundo
-
+        }, 1000);
         return () => clearInterval(interval);
     }, []);
 
@@ -428,7 +370,6 @@ const App: React.FC = () => {
                     location: sessionInfo.location
                 } : null
             };
-
             try {
                 localStorage.setItem('transcription_backup', JSON.stringify(backupData));
                 localStorage.setItem('transcription_backup_time', Date.now().toString());
@@ -441,7 +382,7 @@ const App: React.FC = () => {
     const handleStartSession = () => {
         log('INFO', 'Iniciando nova sessão.');
         clearLogs();
-        tokenTracker.reset(); // Reseta contadores de tokens
+        tokenTracker.reset();
         setTokenStats(tokenTracker.getStats());
         const startTime = new Date();
         navigator.geolocation.getCurrentPosition(
@@ -489,14 +430,11 @@ const App: React.FC = () => {
 
         if (isGuest || !user) {
             alert('Você está no modo convidado. A sessão não será salva.\n\nFaça login para salvar seu progresso.');
-            log('INFO', `Sessão encerrada no modo convidado, sem salvar. Guest: ${isGuest}, User: ${!!user}`);
         } else if (isSessionEmpty) {
             alert('A sessão estava vazia e não foi salva.');
-            log('INFO', 'Sessão encerrada pois não continha dados (transcrição ou anamnese).');
         } else {
             log('INFO', 'Salvando dados da sessão.');
 
-            // Convert GeolocationPosition to a serializable object for Firestore
             const locationData: SerializableLocation | null = sessionInfo?.location ? {
                 coords: {
                     latitude: sessionInfo.location.coords.latitude,
@@ -532,9 +470,7 @@ const App: React.FC = () => {
             }
         }
 
-        // Reset state and return to dashboard
         setTranscriptionHistory([]);
-        setCurrentTurnTranscriptions(Array(LIVE_BUFFERS).fill(''));
         setInsights([]);
         setAnamnesis('');
         setSessionInfo(null);
@@ -551,7 +487,6 @@ const App: React.FC = () => {
     const handleToggleMute = useCallback(() => setIsMuted(prev => !prev), []);
 
     const handleSaveSettings = async (settings: SettingsData) => {
-        // Apply settings locally for guest user or before saving for logged-in user
         setAnamnesisPrompt(settings.prompt);
         setTheme(settings.theme);
         setLogoDataUrl(settings.logoUrl);
@@ -572,14 +507,13 @@ const App: React.FC = () => {
                 waveformStyle: settings.waveformStyle,
                 voiceName: settings.voiceName,
                 insightsProvider: settings.insightsProvider,
-                apiKeys: settings.apiKeys, // <-- BUG FIX: This line was missing
-                gdrive: { ...settings.gdrive, token: null }, // Don't save token
+                apiKeys: settings.apiKeys,
+                gdrive: { ...settings.gdrive, token: null },
                 selectedDeviceId: selectedDeviceId,
             };
             await firebaseService.saveUserSettings(user.uid, settingsToSave);
         }
 
-        // After saving, regenerate anamnesis if a session is in progress with the new prompt
         if (transcriptionHistory.length > 0 && appState === 'in-session') {
             generateAndSetAnamnesis(transcriptionHistory.join('\n\n'));
         }
@@ -614,6 +548,7 @@ const App: React.FC = () => {
         log('INFO', 'Gerando anamnese manualmente...');
     }, [transcriptionHistory, generateAndSetAnamnesis, log]);
 
+    // --- NEW: Handle Toggle Listening with Gemini Live ---
     const handleToggleListening = useCallback(async () => {
         if (isListening) {
             stopEverything();
@@ -621,179 +556,51 @@ const App: React.FC = () => {
         }
 
         const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+        if (!GEMINI_API_KEY) {
+            alert("Erro: Chave de API do Gemini não encontrada. Verifique as configurações.");
+            return;
+        }
 
         setIsListening(true);
-        setStatusMessage('Iniciando transcrição...');
+        setStatusMessage('Conectando ao Gemini Live...');
 
-        try {
-            // Solicita permissão do microfone primeiro
-            const audioConstraints = selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true;
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-            mediaStreamRef.current = stream;
-            setMediaStream(stream);
-            await populateAudioDevices();
+        const service = new GeminiLiveService(
+            GEMINI_API_KEY,
+            (text, isFinal) => {
+                if (isFinal) {
+                    // Texto final confirmado
+                    setTranscriptionHistory(prev => {
+                        const newHistory = [...prev, text];
+                        const fullTranscript = newHistory.join('\n\n');
 
-            // Cria callback compartilhado para as 3 instâncias
-            const createCallback = (instanceId: number) => ({
-                onStart: () => {
-                    if (instanceId === 0) {
-                        setStatusMessage('🎤 Ouvindo... Fale agora.');
-                        log('INFO', `✅ Web Speech API instância ${instanceId} ATIVA e ouvindo.`);
-                    } else {
-                        log('INFO', `✅ Instância redundante ${instanceId} ativa (backup).`);
-                    }
-                },
-                onResult: (transcript: string, isFinal: boolean, confidence: number) => {
-                    const idx = activeLiveBufferIndexRef.current;
-
-                    if (isFinal) {
-                        // Resultado final - processa em background sem bloquear
-                        if (transcript.trim()) {
-                            // Rotaciona IMEDIATAMENTE para próximo buffer (não espera correção)
-                            const nextIdx = (idx + 1) % LIVE_BUFFERS;
-                            activeLiveBufferIndexRef.current = nextIdx;
-                            setActiveLiveBufferIndex(nextIdx);
-                            currentTurnRefs.current[nextIdx] = '';
-
-                            // Mostra transcrição original imediatamente no buffer atual
-                            currentTurnRefs.current[idx] = transcript;
-                            setCurrentTurnTranscriptions(prev => {
-                                const copy = [...prev];
-                                copy[idx] = transcript;
-                                return copy;
-                            });
-
-                            log('INFO', `[Instância ${instanceId}] Transcrição final recebida no buffer ${idx}. Corrigindo em background...`);
-
-                            // Processa correção e histórico em background (não bloqueia)
-                            (async () => {
-                                try {
-                                    // Corrige com Gemini 2.5 Flash REST (async, não bloqueia)
-                                    const corrected = await correctTranscription(transcript, GEMINI_API_KEY);
-
-                                    // Atualiza o buffer com versão corrigida
-                                    currentTurnRefs.current[idx] = corrected;
-                                    setCurrentTurnTranscriptions(prev => {
-                                        const copy = [...prev];
-                                        copy[idx] = corrected;
-                                        return copy;
-                                    });
-
-                                    // Adiciona IMEDIATAMENTE ao histórico (transcrição completa) quando corrigido
-                                    const newHistory = [...transcriptionHistoryRef.current, corrected];
-                                    const fullTranscript = newHistory.join('\n\n');
-                                    setTranscriptionHistory(newHistory);
-
-                                    // Limpa o buffer que acabou de ser processado
-                                    currentTurnRefs.current[idx] = '';
-                                    setCurrentTurnTranscriptions(prev => {
-                                        const copy = [...prev];
-                                        copy[idx] = '';
-                                        return copy;
-                                    });
-
-                                    // Gera insights sempre (em background)
-                                    generateAndSetInsights(fullTranscript);
-
-                                    // Gera anamnese APENAS se modo ao vivo estiver ativo
-                                    if (anamnesisMode === 'live') {
-                                        generateAndSetAnamnesis(fullTranscript);
-                                    }
-
-                                    log('API', `Turno de transcrição processado (buffer ${idx} corrigido e movido para histórico).`);
-                                } catch (error: any) {
-                                    // Em caso de erro na correção, usa transcrição original
-                                    const message = error?.message || String(error);
-                                    log('ERROR', `Erro ao corrigir transcrição (buffer ${idx}): ${message}. Usando transcrição original.`);
-
-                                    // Adiciona transcrição original ao histórico se a correção falhar
-                                    const newHistory = [...transcriptionHistoryRef.current, transcript];
-                                    const fullTranscript = newHistory.join('\n\n');
-                                    setTranscriptionHistory(newHistory);
-
-                                    // Limpa o buffer
-                                    currentTurnRefs.current[idx] = '';
-                                    setCurrentTurnTranscriptions(prev => {
-                                        const copy = [...prev];
-                                        copy[idx] = '';
-                                        return copy;
-                                    });
-
-                                    // Processa mesmo com transcrição original
-                                    generateAndSetInsights(fullTranscript);
-
-                                    // Gera anamnese APENAS se estiver em modo LIVE
-                                    if (anamnesisMode === 'live') {
-                                        generateAndSetAnamnesis(fullTranscript);
-                                    }
-                                }
-                            })();
+                        // Dispara gerações em background
+                        generateAndSetInsights(fullTranscript);
+                        if (anamnesisMode === 'live') {
+                            generateAndSetAnamnesis(fullTranscript);
                         }
-                    } else {
-                        // Resultado intermediário - atualiza visualmente apenas se for da instância principal (0)
-                        if (instanceId === 0) {
-                            currentTurnRefs.current[idx] = transcript;
-                            setCurrentTurnTranscriptions(prev => {
-                                const copy = [...prev];
-                                copy[idx] = transcript;
-                                return copy;
-                            });
-                        }
-                    }
-                },
-                onError: (error: string, message: string) => {
-                    const errorType = error === 'silent-freeze' ? 'TRAVAMENTO' : 'ERROR';
-                    if (instanceId === 0) {
-                        if (error === 'silent-freeze') {
-                            setStatusMessage('⚠️ TRAVAMENTO DETECTADO! Reiniciando em 1s...');
-                        } else if (error.includes('restart')) {
-                            setStatusMessage(`🔄 Reiniciando transcrição...`);
-                        } else {
-                            setStatusMessage(`Erro: ${message.substring(0, 60)}...`);
-                        }
-                        setLastError(`[${new Date().toLocaleTimeString()}] ${error}: ${message}`);
-                    }
 
-                    // Log detalhado com timestamp e contexto
-                    const sessionTime = sessionInfo
-                        ? Math.round((Date.now() - sessionInfo.startTime.getTime()) / 1000)
-                        : 0;
-                    log(errorType, `🔴 [Instância ${instanceId}] [${error}]: ${message} | Tempo sessão: ${sessionTime}s`);
-                },
-                onEnd: () => {
-                    if (isListening && instanceId === 0) {
-                        const timeSinceStart = sessionInfo ? Math.round((Date.now() - sessionInfo.startTime.getTime()) / 1000) : 0;
-                        log('INFO', `🔄 [Instância ${instanceId}] API encerrada. Auto-reiniciando... | Tempo: ${timeSinceStart}s`);
-                        setStatusMessage('🔄 Reconectando...');
-                    }
+                        return newHistory;
+                    });
+                    setCurrentLiveTranscript(''); // Limpa o buffer visual
+                    log('API', 'Turno finalizado e adicionado ao histórico.');
+                } else {
+                    // Texto em tempo real (streaming)
+                    setCurrentLiveTranscript(prev => prev + text);
                 }
-            });
-
-            // Cria 3 instâncias paralelas para redundância máxima
-            webSpeechServicesRef.current = [];
-            for (let i = 0; i < 3; i++) {
-                const service = new WebSpeechService(createCallback(i), {
-                    lang: 'pt-BR',
-                    continuous: true,
-                    interimResults: true,
-                    maxAlternatives: 1
-                });
-                webSpeechServicesRef.current.push(service);
-                service.start();
-                log('INFO', `Instância ${i} do Web Speech API iniciada para redundância.`);
+            },
+            (error) => {
+                setStatusMessage(`Erro: ${error}`);
+                setLastError(error);
+                log('ERROR', error);
+                setIsListening(false);
             }
+        );
 
-            // Mantém a referência principal para compatibilidade
-            webSpeechServiceRef.current = webSpeechServicesRef.current[0];
+        geminiLiveServiceRef.current = service;
+        await service.connect();
+        setStatusMessage('🎙️ Ouvindo (Gemini Live)...');
 
-        } catch (error: any) {
-            const message = error?.message || String(error);
-            setStatusMessage('Erro ao acessar o microfone.');
-            setLastError(message);
-            log('ERROR', `Erro ao iniciar a escuta: ${message}`);
-            setIsListening(false);
-        }
-    }, [isListening, stopEverything, generateAndSetInsights, generateAndSetAnamnesis, selectedDeviceId, log]);
+    }, [isListening, stopEverything, generateAndSetInsights, generateAndSetAnamnesis, anamnesisMode, log]);
 
     if (authLoading) {
         return (
@@ -872,7 +679,7 @@ const App: React.FC = () => {
                     <ControlsPanel
                         isListening={isListening}
                         statusMessage={statusMessage}
-                        currentTranscription={currentTurnTranscriptions}
+                        currentTranscription={[currentLiveTranscript]} // Passando o stream atual
                         onToggleListening={handleToggleListening}
                         isMuted={isMuted}
                         onToggleMute={handleToggleMute}
@@ -881,7 +688,7 @@ const App: React.FC = () => {
                         onDeviceChange={handleDeviceChange}
                         mediaStream={mediaStream}
                         waveformStyle={waveformStyle}
-                        activeBufferIndex={activeLiveBufferIndex}
+                        activeBufferIndex={0}
                     />
                     <InsightsPanel insights={insights} isLoading={isGeneratingInsights} activeInsightsProvider={activeInsightsProvider} />
                 </main>
@@ -922,7 +729,6 @@ const App: React.FC = () => {
                 onClose={() => setIsKnowledgePanelOpen(false)}
             />
 
-            {/* Floating Action Button for Knowledge Base */}
             <button
                 onClick={() => setIsKnowledgePanelOpen(true)}
                 className="fixed bottom-6 left-6 z-40 p-3 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-full shadow-lg hover:shadow-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all border border-gray-200 dark:border-gray-700 group"
