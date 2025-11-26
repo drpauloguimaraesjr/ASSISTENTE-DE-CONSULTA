@@ -30,7 +30,6 @@ export class GeminiLiveService {
 
         try {
             const config: LiveConfig = {
-                model: "gemini-2.0-flash-exp",
                 generationConfig: {
                     responseModalities: "text", // Queremos apenas texto de volta (transcrição)
                     speechConfig: {
@@ -44,7 +43,12 @@ export class GeminiLiveService {
                 }
             };
 
-            this.connection = await this.client.live.connect({ config });
+            // CORREÇÃO: Passando o modelo no nível superior do objeto de opções
+            this.connection = await this.client.live.connect({
+                model: "gemini-2.0-flash-exp",
+                config: config
+            });
+
             this.isConnected = true;
             this.onLogCallback("Conexão WebSocket estabelecida com sucesso!");
 
