@@ -593,6 +593,9 @@ const App: React.FC = () => {
                 setLastError(error);
                 log('ERROR', error);
                 setIsListening(false);
+            },
+            (message) => {
+                log('INFO', `[Gemini Live] ${message}`);
             }
         );
 

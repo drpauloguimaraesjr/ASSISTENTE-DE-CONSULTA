@@ -8,20 +8,25 @@ export class GeminiLiveService {
     private mediaStream: MediaStream | null = null;
     private onTranscriptCallback: (text: string, isFinal: boolean) => void;
     private onErrorCallback: (error: string) => void;
+    private onLogCallback: (message: string) => void;
     private isConnected: boolean = false;
 
     constructor(
         apiKey: string,
         onTranscript: (text: string, isFinal: boolean) => void,
-        onError: (error: string) => void
+        onError: (error: string) => void,
+        onLog: (message: string) => void
     ) {
         this.client = new GoogleGenAI({ apiKey });
         this.onTranscriptCallback = onTranscript;
         this.onErrorCallback = onError;
+        this.onLogCallback = onLog;
     }
 
     async connect() {
         if (this.isConnected) return;
+
+        this.onLogCallback("Iniciando conexão com Gemini Live...");
 
         try {
             const config: LiveConfig = {
@@ -41,7 +46,7 @@ export class GeminiLiveService {
 
             this.connection = await this.client.live.connect({ config });
             this.isConnected = true;
-            console.log("Gemini Live conectado!");
+            this.onLogCallback("Conexão WebSocket estabelecida com sucesso!");
 
             // Iniciar captura de áudio
             await this.startAudioCapture();
@@ -59,30 +64,33 @@ export class GeminiLiveService {
     private async listenToResponses() {
         if (!this.connection) return;
 
+        this.onLogCallback("Aguardando respostas do Gemini...");
+
         try {
             for await (const message of this.connection) {
                 if (message.serverContent?.modelTurn?.parts) {
                     for (const part of message.serverContent.modelTurn.parts) {
                         if (part.text) {
-                            // O Gemini manda pedaços de texto. Consideramos "final" quando há uma pausa ou quebra lógica,
-                            // mas no streaming contínuo, vamos acumulando.
+                            this.onLogCallback(`Texto recebido: ${part.text.substring(0, 50)}...`);
                             this.onTranscriptCallback(part.text, false);
                         }
                     }
                 }
 
                 if (message.serverContent?.turnComplete) {
-                    // Turno completou
+                    this.onLogCallback("Turno completado pelo modelo.");
                     this.onTranscriptCallback("", true);
                 }
             }
         } catch (error) {
             console.error("Erro no stream de resposta:", error);
+            this.onErrorCallback("Erro no stream de resposta: " + String(error));
             this.disconnect();
         }
     }
 
     private async startAudioCapture() {
+        this.onLogCallback("Solicitando acesso ao microfone...");
         try {
             this.mediaStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -90,6 +98,7 @@ export class GeminiLiveService {
                     sampleRate: 16000, // Gemini prefere 16kHz ou 24kHz
                 }
             });
+            this.onLogCallback("Microfone acessado com sucesso.");
 
             this.audioContext = new AudioContext({ sampleRate: 16000 });
             const source = this.audioContext.createMediaStreamSource(this.mediaStream);
@@ -97,6 +106,7 @@ export class GeminiLiveService {
             // Processador para converter áudio para PCM base64
             this.audioProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
+            let chunkCount = 0;
             this.audioProcessor.onaudioprocess = (e) => {
                 if (!this.connection || !this.isConnected) return;
 
@@ -113,10 +123,16 @@ export class GeminiLiveService {
                     mimeType: "audio/pcm;rate=16000",
                     data: base64Audio
                 }]);
+
+                chunkCount++;
+                if (chunkCount % 50 === 0) { // Log a cada ~2 segundos (50 * 4096 / 16000)
+                    this.onLogCallback(`Enviados ${chunkCount} chunks de áudio...`);
+                }
             };
 
             source.connect(this.audioProcessor);
             this.audioProcessor.connect(this.audioContext.destination); // Necessário para o script processor rodar
+            this.onLogCallback("Processamento de áudio iniciado.");
 
         } catch (error: any) {
             console.error("Erro ao capturar áudio:", error);
@@ -126,6 +142,7 @@ export class GeminiLiveService {
 
     disconnect() {
         this.isConnected = false;
+        this.onLogCallback("Desconectando...");
 
         if (this.mediaStream) {
             this.mediaStream.getTracks().forEach(track => track.stop());
@@ -142,10 +159,8 @@ export class GeminiLiveService {
             this.audioContext = null;
         }
 
-        // O SDK do Gemini não tem um método explícito 'close' exposto facilmente na tipagem atual,
-        // mas parar de enviar áudio e liberar a referência encerra o stream.
         this.connection = null;
-        console.log("Gemini Live desconectado.");
+        this.onLogCallback("Desconectado.");
     }
 
     // Utilitários de Áudio
