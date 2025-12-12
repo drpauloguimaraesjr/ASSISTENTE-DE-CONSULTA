@@ -257,7 +257,7 @@ body {
    ============================================ */
 /* Menu Items */
 .menu-item {
-  @apply relative flex items-center w-full gap-3 px-3 py-2 font-medium rounded-lg text-theme-sm;
+  @apply relative flex items-center w-full gap-3 px-3 py-2 font-medium rounded-lg text-sm;
 }
 
 .menu-item-active {
@@ -270,7 +270,7 @@ body {
 
 /* Cards */
 .card {
-  @apply rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] shadow-theme-sm;
+  @apply rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] shadow-sm;
 }
 
 .card-header {
