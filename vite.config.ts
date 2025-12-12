@@ -18,6 +18,37 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              // Separar React e React DOM
+              'react-vendor': ['react', 'react-dom'],
+              // Separar Firebase (muito pesado)
+              'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+              // Separar Google GenAI
+              'gemini-vendor': ['@google/genai'],
+              // Separar Radix UI
+              'radix-vendor': [
+                '@radix-ui/react-dialog',
+                '@radix-ui/react-dropdown-menu',
+                '@radix-ui/react-select',
+                '@radix-ui/react-switch',
+                '@radix-ui/react-tabs'
+              ],
+              // Utilitários
+              'utils-vendor': ['clsx', 'tailwind-merge', 'class-variance-authority'],
+            }
+          }
+        },
+        chunkSizeWarningLimit: 1000,
+        target: 'esnext',
+        minify: 'esbuild',
+      },
+      optimizeDeps: {
+        include: ['react', 'react-dom'],
+        exclude: ['@google/genai']
       }
     };
 });

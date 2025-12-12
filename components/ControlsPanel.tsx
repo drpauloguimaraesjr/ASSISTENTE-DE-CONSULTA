@@ -109,29 +109,29 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
         );
     };
     const getStatusColor = () => {
-        if (statusMessage.includes('Erro') || statusMessage.includes('falhou')) return 'text-red-400';
-        if (statusMessage.includes('Conectando') || statusMessage.includes('Aguardando')) return 'text-yellow-400';
-        if (statusMessage.includes('Ouvindo') || statusMessage.includes('Transcrevendo')) return 'text-green-400';
-        return 'text-secondary';
+        if (statusMessage.includes('Erro') || statusMessage.includes('falhou')) return 'text-error-500 dark:text-error-400';
+        if (statusMessage.includes('Conectando') || statusMessage.includes('Aguardando')) return 'text-warning-500 dark:text-warning-400';
+        if (statusMessage.includes('Ouvindo') || statusMessage.includes('Transcrevendo')) return 'text-success-500 dark:text-success-400';
+        return 'text-gray-600 dark:text-gray-400';
     };
 
     return (
-        <div className="bg-panel rounded-lg p-6 flex flex-col items-center justify-between border border-primary h-full">
-            <div className="text-center w-full">
-                <h2 className="text-xl font-semibold text-accent mb-2">Controle de Áudio</h2>
+        <div className="card h-full flex flex-col items-center justify-between">
+            <div className="card-body w-full text-center">
+                <h2 className="text-theme-xl font-semibold text-gray-800 dark:text-white/90 mb-2">Controle de Áudio</h2>
                 <div className="flex items-center justify-center gap-2 h-10">
                     {isListening && (
                         <span className="relative flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-success-500"></span>
                         </span>
                     )}
-                    <p className={`text-sm font-medium ${getStatusColor()}`}>{statusMessage}</p>
+                    <p className={`text-theme-sm font-medium ${getStatusColor()}`}>{statusMessage}</p>
                 </div>
             </div>
 
-            <div className="w-full max-w-sm my-4">
-                <label htmlFor="audio-device-select" className="block text-sm font-medium text-secondary mb-1">
+            <div className="w-full max-w-sm my-4 px-6">
+                <label htmlFor="audio-device-select" className="block text-theme-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Microfone
                 </label>
                 <select 
@@ -139,7 +139,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
                     value={selectedDeviceId || ''}
                     onChange={(e) => onDeviceChange(e.target.value)}
                     disabled={audioDevices.length === 0 || isListening}
-                    className="w-full bg-primary border border-secondary rounded-md p-2.5 text-sm text-primary focus:ring-2 focus-ring focus:border-accent transition-colors disabled:bg-panel disabled:cursor-not-allowed"
+                    className="input disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {audioDevices.length > 0 ? (
                         audioDevices.map(device => (
@@ -157,23 +157,23 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
 
             {isListening ? (
                 <>
-                    <div className="w-full h-28 my-4 relative">
+                    <div className="w-full h-28 my-4 relative px-6">
                         {mediaStream && <WaveformVisualizer stream={mediaStream} isListening={isListening} style={waveformStyle} />}
                     </div>
-                    <div className="flex items-center justify-center gap-6">
+                    <div className="flex items-center justify-center gap-6 pb-6">
                         <button
                             onClick={onToggleListening}
-                            className="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50 btn-danger text-white"
+                            className="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus-ring btn-danger shadow-theme-md hover:scale-105"
                             aria-label="Parar de ouvir"
                         >
                             <MicrophoneIcon className="w-10 h-10" />
                         </button>
                         <button
                             onClick={onToggleMute}
-                            className={`w-20 h-20 rounded-full flex items-center justify-center transition-colors duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50
+                            className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus-ring shadow-theme-md hover:scale-105
                                 ${isMuted
-                                    ? 'bg-slate-600 text-slate-300'
-                                    : 'btn-secondary text-white'
+                                    ? 'bg-gray-600 text-gray-300 hover:bg-gray-700'
+                                    : 'btn-secondary'
                                 }
                             `}
                             aria-label={isMuted ? "Ativar som do agente" : "Desativar som do agente"}
@@ -183,10 +183,10 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({ isListening, statu
                     </div>
                 </>
             ) : (
-                <div className="my-4 flex items-center justify-center flex-grow">
+                <div className="my-4 flex items-center justify-center flex-grow pb-6">
                     <button
                         onClick={onToggleListening}
-                        className="relative w-36 h-36 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50 btn-primary text-white"
+                        className="relative w-36 h-36 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out focus-ring btn-primary shadow-theme-lg hover:scale-105"
                         aria-label="Começar a ouvir"
                     >
                         <MicrophoneIcon className="w-16 h-16" />

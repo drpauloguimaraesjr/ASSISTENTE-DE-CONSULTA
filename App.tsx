@@ -1,28 +1,34 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import React, { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { User } from 'firebase/auth';
 import * as firebaseService from './services/firebaseService';
 
+// Lazy load de componentes pesados
+const SettingsPanel = lazy(() => import('./components/SettingsPanel').then(module => ({ default: module.SettingsPanel })));
+const KnowledgePanel = lazy(() => import('./components/KnowledgePanel').then(module => ({ default: module.KnowledgePanel })));
+const Dashboard = lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })));
+const LoginScreen = lazy(() => import('./components/LoginScreen').then(module => ({ default: module.LoginScreen })));
+
+// Componentes leves - importação direta
 import { ControlsPanel } from './components/ControlsPanel';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { InsightsPanel } from './components/InsightsPanel';
-import { SettingsPanel, SettingsData, WaveformStyle, InsightProvider, PrebuiltVoice } from './components/SettingsPanel';
-import { GDriveSettings } from './services/googleDriveService';
-import { Dashboard } from './components/Dashboard';
-import { generateInsightsWithFailover, generateAnamnesisWithFailover } from './services/geminiService';
-import { GeminiLiveService } from './services/geminiLiveService'; // NEW SERVICE
-import { tokenTracker, TokenStats } from './services/tokenTracker';
-import { medicalKnowledgeService } from './services/medicalKnowledgeService';
-import { proceduralMemoryService } from './services/proceduralMemoryService';
 import { Logo } from './components/Logo';
 import { Clock } from './components/Clock';
 import { SessionTimer } from './components/SessionTimer';
+
+// Serviços - lazy load apenas quando necessário
+import { generateInsightsWithFailover, generateAnamnesisWithFailover } from './services/geminiService';
+import { GeminiLiveService } from './services/geminiLiveService';
+import { tokenTracker, TokenStats } from './services/tokenTracker';
+import { medicalKnowledgeService } from './services/medicalKnowledgeService';
+import { proceduralMemoryService } from './services/proceduralMemoryService';
 import { useLogger } from './hooks/useLogger';
 import { uploadFile } from './services/googleDriveService';
 import { getPatientName } from './utils/sessionUtils';
-import { LoginScreen } from './components/LoginScreen';
-import { KnowledgePanel } from './components/KnowledgePanel';
+
+import type { SettingsData, WaveformStyle, InsightProvider, PrebuiltVoice } from './components/SettingsPanel';
+import type { GDriveSettings } from './services/googleDriveService';
 
 type AppState = 'pre-session' | 'in-session';
 export type Theme = 'default' | 'matrix' | 'dusk' | 'light';
@@ -619,26 +625,38 @@ const App: React.FC = () => {
     let mainContent;
     if (!user && !isGuest) {
         mainContent = (
-            <LoginScreen
-                onLogin={firebaseService.signInWithGoogle}
-                isConfigured={isFirebaseConfigured}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                onContinueAsGuest={() => setIsGuest(true)}
-            />
+            <Suspense fallback={
+                <div className="h-screen w-screen flex items-center justify-center">
+                    <div className="animate-spin h-10 w-10 border-4 border-brand-500 border-t-transparent rounded-full"></div>
+                </div>
+            }>
+                <LoginScreen
+                    onLogin={firebaseService.signInWithGoogle}
+                    isConfigured={isFirebaseConfigured}
+                    onOpenSettings={() => setIsSettingsOpen(true)}
+                    onContinueAsGuest={() => setIsGuest(true)}
+                />
+            </Suspense>
         );
     } else if (appState === 'pre-session') {
         mainContent = (
-            <Dashboard
-                user={user}
-                isGuest={isGuest}
-                onLoginRequest={() => setIsGuest(false)}
-                onStartSession={handleStartSession}
-                savedSessions={savedSessions}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                logoDataUrl={logoDataUrl}
-                logoSize={logoSize}
-                onDeleteSession={handleDeleteSession}
-            />
+            <Suspense fallback={
+                <div className="h-screen w-screen flex items-center justify-center">
+                    <div className="animate-spin h-10 w-10 border-4 border-brand-500 border-t-transparent rounded-full"></div>
+                </div>
+            }>
+                <Dashboard
+                    user={user}
+                    isGuest={isGuest}
+                    onLoginRequest={() => setIsGuest(false)}
+                    onStartSession={handleStartSession}
+                    savedSessions={savedSessions}
+                    onOpenSettings={() => setIsSettingsOpen(true)}
+                    logoDataUrl={logoDataUrl}
+                    logoSize={logoSize}
+                    onDeleteSession={handleDeleteSession}
+                />
+            </Suspense>
         );
     } else {
         mainContent = (
@@ -703,34 +721,50 @@ const App: React.FC = () => {
         <>
             {mainContent}
 
-            <SettingsPanel
-                isOpen={isSettingsOpen}
-                onClose={() => setIsSettingsOpen(false)}
-                onSave={handleSaveSettings}
-                initialData={{
-                    prompt: anamnesisPrompt,
-                    theme,
-                    logoUrl: logoDataUrl,
-                    logoSize,
-                    waveformStyle,
-                    voiceName,
-                    insightsProvider,
-                    apiKeys,
-                    gdrive: gdriveSettings,
-                    selectedDeviceId
-                }}
-                audioDevices={audioDevices}
-                onResetPrompt={handleResetPrompt}
-                logs={logs}
-                onClearLogs={clearLogs}
-                lastError={lastError}
-                tokenStats={tokenStats}
-            />
+            {isSettingsOpen && (
+                <Suspense fallback={
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="animate-spin h-10 w-10 border-4 border-brand-500 border-t-transparent rounded-full"></div>
+                    </div>
+                }>
+                    <SettingsPanel
+                        isOpen={isSettingsOpen}
+                        onClose={() => setIsSettingsOpen(false)}
+                        onSave={handleSaveSettings}
+                        initialData={{
+                            prompt: anamnesisPrompt,
+                            theme,
+                            logoUrl: logoDataUrl,
+                            logoSize,
+                            waveformStyle,
+                            voiceName,
+                            insightsProvider,
+                            apiKeys,
+                            gdrive: gdriveSettings,
+                            selectedDeviceId
+                        }}
+                        audioDevices={audioDevices}
+                        onResetPrompt={handleResetPrompt}
+                        logs={logs}
+                        onClearLogs={clearLogs}
+                        lastError={lastError}
+                        tokenStats={tokenStats}
+                    />
+                </Suspense>
+            )}
 
-            <KnowledgePanel
-                isOpen={isKnowledgePanelOpen}
-                onClose={() => setIsKnowledgePanelOpen(false)}
-            />
+            {isKnowledgePanelOpen && (
+                <Suspense fallback={
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="animate-spin h-10 w-10 border-4 border-brand-500 border-t-transparent rounded-full"></div>
+                    </div>
+                }>
+                    <KnowledgePanel
+                        isOpen={isKnowledgePanelOpen}
+                        onClose={() => setIsKnowledgePanelOpen(false)}
+                    />
+                </Suspense>
+            )}
 
             <button
                 onClick={() => setIsKnowledgePanelOpen(true)}

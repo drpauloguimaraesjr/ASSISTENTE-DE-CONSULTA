@@ -25,14 +25,15 @@ import {
 import { SessionData } from '../App';
 
 // Firebase config is sourced from Vite env vars. Create a .env.local with VITE_*
+// IMPORTANTE: Não use valores hardcoded. Configure as variáveis de ambiente no arquivo .env.local
 const firebaseConfigFromEnv = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBppj3f6TJT01Xjn_cWXhqOvpccge-g6ds",
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "assistente-de-atendiment-d5d1a.firebaseapp.com",
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "assistente-de-atendiment-d5d1a",
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "assistente-de-atendiment-d5d1a.firebasestorage.app",
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "913448523577",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:913448523577:web:66f6d72cd4d8492870bae8",
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-XF46PB6S49"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ""
 };
 
 // Export placeholder for Firebase configuration (used in SettingsPanel)

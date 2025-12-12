@@ -24,19 +24,31 @@ const UserMenu: React.FC<{user: User}> = ({ user }) => {
 
     return (
         <div className="relative">
-            <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2">
-                <img src={user.photoURL || undefined} alt="User avatar" className="w-8 h-8 rounded-full" />
-                <span className="hidden sm:block text-sm font-medium text-primary">{user.displayName}</span>
+            <button 
+                onClick={() => setIsOpen(!isOpen)} 
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors focus-ring"
+            >
+                <img src={user.photoURL || undefined} alt="User avatar" className="w-8 h-8 rounded-full ring-2 ring-gray-200 dark:ring-gray-700" />
+                <span className="hidden sm:block text-sm font-medium text-gray-700 dark:text-gray-300">{user.displayName}</span>
             </button>
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-panel-solid rounded-md shadow-lg py-1 border border-primary z-10">
-                    <button
-                        onClick={signOut}
-                        className="block w-full text-left px-4 py-2 text-sm text-secondary hover:bg-primary/50 hover:text-primary"
-                    >
-                        Sair
-                    </button>
-                </div>
+                <>
+                    <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setIsOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-theme-lg py-1 z-50 dark:border-gray-800 dark:bg-gray-900">
+                        <button
+                            onClick={() => {
+                                signOut();
+                                setIsOpen(false);
+                            }}
+                            className="menu-item-inactive w-full text-left"
+                        >
+                            Sair
+                        </button>
+                    </div>
+                </>
             )}
         </div>
     );
@@ -58,50 +70,65 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, isGuest, onLoginRequ
     const [selectedSession, setSelectedSession] = useState<SessionData | null>(null);
 
     return (
-        <div className="h-screen w-screen flex flex-col text-primary p-4 font-sans">
+        <div className="min-h-screen w-full flex flex-col bg-gray-50 dark:bg-gray-900 p-4 md:p-6 font-outfit">
             <header className="flex-shrink-0 pb-4 flex justify-between items-center">
                 <Logo logoDataUrl={logoDataUrl} size={logoSize} />
-                 <div className="flex items-center gap-4">
+                 <div className="flex items-center gap-3">
                     {user ? (
                         <UserMenu user={user} />
                     ) : (
                         <button
                             onClick={onLoginRequest}
-                            className="px-4 py-2 text-sm font-medium rounded-md btn-secondary text-white transition-colors"
+                            className="btn btn-secondary"
                         >
                             Fazer Login / Salvar
                         </button>
                     )}
                      <button 
                         onClick={onOpenSettings}
-                        className="p-2 text-secondary hover:text-primary transition-colors"
+                        className="relative flex items-center justify-center h-10 w-10 rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white focus-ring"
                         aria-label="Abrir configurações"
                     >
-                        <SettingsIcon className="w-6 h-6" />
+                        <SettingsIcon className="w-5 h-5" />
                     </button>
                 </div>
             </header>
-            <main className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 overflow-hidden">
-                <div className="md:col-span-2 flex flex-col gap-4">
+            <main className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 overflow-hidden">
+                <div className="md:col-span-2 flex flex-col gap-4 md:gap-6">
                     {isGuest && (
-                        <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg text-sm text-yellow-200/90 flex items-center gap-3">
-                            <InfoIcon className="w-5 h-5 flex-shrink-0" />
-                            <span>Você está no modo convidado. Suas sessões não serão salvas. <button onClick={onLoginRequest} className="font-bold underline hover:text-white">Faça login</button> para salvar.</span>
+                        <div className="card border-warning-200 bg-warning-50 dark:border-warning-800 dark:bg-warning-500/10">
+                            <div className="card-body flex items-start gap-3">
+                                <InfoIcon className="w-5 h-5 flex-shrink-0 text-warning-600 dark:text-warning-400 mt-0.5" />
+                                <div className="flex-1">
+                                    <p className="text-sm text-warning-800 dark:text-warning-300">
+                                        Você está no modo convidado. Suas sessões não serão salvas.{' '}
+                                        <button 
+                                            onClick={onLoginRequest} 
+                                            className="font-semibold underline hover:text-warning-900 dark:hover:text-warning-200 transition-colors"
+                                        >
+                                            Faça login
+                                        </button>{' '}
+                                        para salvar.
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     )}
-                    <div className="bg-panel rounded-lg p-6 flex flex-col justify-center items-start border border-primary flex-grow">
-                         <h1 className="text-3xl font-bold mb-2 text-primary">
-                            {user ? `Bem-vindo de volta, ${user.displayName?.split(' ')[0]}!` : 'Bem-vindo!'}
-                        </h1>
-                        <p className="text-secondary mb-6">
-                            Pronto para sua próxima consulta?
-                        </p>
-                        <button
-                            onClick={onStartSession}
-                            className="px-8 py-4 btn-primary text-white font-bold text-lg rounded-full transition-transform transform hover:scale-105 focus:outline-none focus:ring-4 focus-ring focus:ring-opacity-50"
-                        >
-                            Iniciar Nova Sessão
-                        </button>
+                    <div className="card flex-grow flex flex-col justify-center items-start">
+                        <div className="card-body w-full">
+                            <h1 className="text-title-md font-bold mb-2 text-gray-800 dark:text-white/90">
+                                {user ? `Bem-vindo de volta, ${user.displayName?.split(' ')[0]}!` : 'Bem-vindo!'}
+                            </h1>
+                            <p className="text-theme-sm text-gray-600 dark:text-gray-400 mb-6">
+                                Pronto para sua próxima consulta?
+                            </p>
+                            <button
+                                onClick={onStartSession}
+                                className="btn btn-primary px-8 py-4 text-lg font-semibold rounded-xl hover:scale-105 transition-transform focus-ring"
+                            >
+                                Iniciar Nova Sessão
+                            </button>
+                        </div>
                     </div>
                     <SessionExplorer sessions={savedSessions} onSessionSelect={setSelectedSession} onDeleteSession={onDeleteSession} />
                 </div>
