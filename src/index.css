@@ -261,7 +261,7 @@ body {
 }
 
 .menu-item-active {
-  @apply bg-brand-50 text-brand-500 dark:bg-brand-500/20 dark:text-brand-400;
+  @apply bg-blue-50 text-blue-500 dark:bg-blue-500/20 dark:text-blue-400;
 }
 
 .menu-item-inactive {
@@ -287,7 +287,7 @@ body {
 }
 
 .btn-primary {
-  @apply bg-brand-500 text-white hover:bg-brand-600 focus:ring-brand-500/50;
+  @apply bg-blue-500 text-white hover:bg-blue-600 focus:ring-blue-500/50;
 }
 
 .btn-secondary {
@@ -295,11 +295,11 @@ body {
 }
 
 .btn-danger {
-  @apply bg-error-500 text-white hover:bg-error-600 focus:ring-error-500/50;
+  @apply bg-red-500 text-white hover:bg-red-600 focus:ring-red-500/50;
 }
 
 .btn-success {
-  @apply bg-success-500 text-white hover:bg-success-600 focus:ring-success-500/50;
+  @apply bg-green-500 text-white hover:bg-green-600 focus:ring-green-500/50;
 }
 
 .btn-outline {
@@ -308,12 +308,12 @@ body {
 
 /* Inputs */
 .input {
-  @apply w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none dark:border-gray-800 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500 dark:focus:border-brand-500;
+  @apply w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none dark:border-gray-800 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500 dark:focus:border-blue-500;
 }
 
 /* Focus Ring */
 .focus-ring {
-  @apply focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:ring-offset-2 dark:focus:ring-offset-gray-900;
+  @apply focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2 dark:focus:ring-offset-gray-900;
 }
 
 /* Animations */
