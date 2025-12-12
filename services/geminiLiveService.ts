@@ -71,7 +71,10 @@ export class GeminiLiveService {
         this.onLogCallback("Aguardando respostas do Gemini...");
 
         try {
-            for await (const message of this.connection) {
+            // CORREÇÃO: Usar o método stream() que retorna um async iterable
+            const stream = this.connection.stream();
+            
+            for await (const message of stream) {
                 if (message.serverContent?.modelTurn?.parts) {
                     for (const part of message.serverContent.modelTurn.parts) {
                         if (part.text) {
