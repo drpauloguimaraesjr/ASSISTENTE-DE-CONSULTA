@@ -14,19 +14,30 @@ export interface AudioRecordingConfig {
     sampleRate?: number; // Taxa de amostragem (padrão 16000)
 }
 
+interface AudioBuffer {
+    chunks: Float32Array[];
+    startTime: number;
+    lastSoundTime: number;
+    isReady: boolean; // Se está pronto para transcrição
+    isTranscribing: boolean; // Se está sendo transcrito
+}
+
 export class AudioRecordingService {
     private mediaStream: MediaStream | null = null;
     private audioContext: AudioContext | null = null;
-    private mediaRecorder: MediaRecorder | null = null;
     private audioProcessor: ScriptProcessorNode | null = null;
     private analyser: AnalyserNode | null = null;
     
     private isRecording: boolean = false;
     private shouldStop: boolean = false;
     
-    private currentChunk: Blob[] = [];
-    private chunkStartTime: number = 0;
-    private lastSoundTime: number = 0;
+    // Três buffers rotativos
+    private buffers: AudioBuffer[] = [
+        { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
+        { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
+        { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
+    ];
+    private activeBufferIndex: number = 0;
     
     private callbacks: AudioRecordingCallbacks;
     private config: Required<AudioRecordingConfig>;
@@ -60,7 +71,7 @@ export class AudioRecordingService {
 
         this.shouldStop = false;
         this.isRecording = true;
-        this.callbacks.onLog("Iniciando gravação de áudio...");
+        this.callbacks.onLog("Iniciando gravação de áudio com 3 buffers rotativos...");
 
         try {
             // Solicitar acesso ao microfone
@@ -88,64 +99,43 @@ export class AudioRecordingService {
             // Criar ScriptProcessor para capturar áudio
             this.audioProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
             
-            // Buffer para armazenar o áudio do chunk atual
-            const audioChunks: Float32Array[] = [];
-            
             this.audioProcessor.onaudioprocess = (e) => {
                 if (!this.isRecording || this.shouldStop) return;
 
                 const inputData = e.inputBuffer.getChannelData(0);
-                
-                // Detectar nível de volume para silêncio
                 const volume = this.calculateVolume(inputData);
                 const hasSound = volume > this.config.silenceThreshold;
-                
                 const now = Date.now();
-                
-                if (hasSound) {
-                    this.lastSoundTime = now;
+
+                // Adiciona áudio a TODOS os buffers ativos (que não estão sendo transcritos)
+                for (let i = 0; i < this.buffers.length; i++) {
+                    const buffer = this.buffers[i];
                     
-                    // Iniciar novo chunk se necessário
-                    if (this.chunkStartTime === 0) {
-                        this.chunkStartTime = now;
-                        this.callbacks.onLog("Novo pacote de áudio iniciado");
+                    // Pula buffers que estão sendo transcritos ou que já foram marcados como ready
+                    if (buffer.isTranscribing || buffer.isReady) continue;
+                    
+                    // Inicia novo buffer se necessário
+                    if (buffer.startTime === 0) {
+                        buffer.startTime = now;
+                        this.callbacks.onLog(`Buffer ${i + 1} iniciado`);
                     }
                     
-                    // Adicionar ao buffer do chunk atual
-                    audioChunks.push(new Float32Array(inputData));
+                    // Adiciona áudio ao buffer
+                    buffer.chunks.push(new Float32Array(inputData));
                     
-                } else {
-                    // Sem som - verificar se deve empacotar
-                    const silenceDuration = now - this.lastSoundTime;
-                    const chunkDuration = now - this.chunkStartTime;
-                    
-                    // Se ainda tem áudio sendo capturado, continua
-                    if (audioChunks.length > 0) {
-                        audioChunks.push(new Float32Array(inputData));
-                    }
-                    
-                    // Verifica condições para empacotar:
-                    // 1. Silêncio por tempo suficiente E chunk tem duração mínima
-                    // 2. OU chunk atingiu duração máxima
-                    const shouldPackage = 
-                        (silenceDuration >= this.config.silenceDuration && 
-                         chunkDuration >= this.config.minChunkDuration) ||
-                        chunkDuration >= this.config.maxChunkDuration;
-                    
-                    if (shouldPackage && audioChunks.length > 0) {
-                        this.callbacks.onLog(`Empacotando áudio (${Math.round(chunkDuration/1000)}s de duração, ${Math.round(silenceDuration/1000)}s de silêncio)`);
-                        this.packageAndTranscribe(audioChunks, chunkDuration);
-                        audioChunks.length = 0; // Limpa o buffer
-                        this.chunkStartTime = 0;
-                        this.lastSoundTime = 0;
+                    if (hasSound) {
+                        buffer.lastSoundTime = now;
                     }
                 }
+
+                // Verifica condições para empacotar cada buffer
+                this.checkAndPackageBuffers(now);
             };
 
             source.connect(this.audioProcessor);
             this.audioProcessor.connect(this.audioContext.destination);
             
-            this.callbacks.onLog("Gravação iniciada. Aguardando fala...");
+            this.callbacks.onLog("Gravação iniciada com 3 buffers. Aguardando fala...");
 
         } catch (error: any) {
             this.callbacks.onError(`Erro ao iniciar gravação: ${error.message}`);
@@ -153,22 +143,69 @@ export class AudioRecordingService {
         }
     }
 
-    private calculateVolume(buffer: Float32Array): number {
-        let sum = 0;
-        for (let i = 0; i < buffer.length; i++) {
-            sum += Math.abs(buffer[i]);
+    private checkAndPackageBuffers(now: number) {
+        for (let i = 0; i < this.buffers.length; i++) {
+            const buffer = this.buffers[i];
+            
+            // Pula se já está pronto ou sendo transcrito
+            if (buffer.isReady || buffer.isTranscribing || buffer.chunks.length === 0) continue;
+            
+            const silenceDuration = now - buffer.lastSoundTime;
+            const chunkDuration = now - buffer.startTime;
+            
+            // Verifica condições para empacotar:
+            // 1. Silêncio por tempo suficiente E chunk tem duração mínima
+            // 2. OU chunk atingiu duração máxima
+            const shouldPackage = 
+                (silenceDuration >= this.config.silenceDuration && 
+                 chunkDuration >= this.config.minChunkDuration) ||
+                chunkDuration >= this.config.maxChunkDuration;
+            
+            if (shouldPackage) {
+                this.callbacks.onLog(`Buffer ${i + 1} pronto para transcrição (${Math.round(chunkDuration/1000)}s de duração, ${Math.round(silenceDuration/1000)}s de silêncio)`);
+                
+                // Marca como ready e inicia transcrição (não bloqueante)
+                buffer.isReady = true;
+                buffer.isTranscribing = true;
+                
+                // Processa em paralelo (não bloqueia a gravação)
+                this.packageAndTranscribe(i, buffer, chunkDuration);
+            }
         }
-        return sum / buffer.length;
     }
 
-    private async packageAndTranscribe(audioChunks: Float32Array[], duration: number) {
+    private async packageAndTranscribe(bufferIndex: number, buffer: AudioBuffer, duration: number) {
+        try {
+            // Cria uma cópia dos chunks para processar
+            const chunksToProcess = [...buffer.chunks];
+            
+            // Libera o buffer imediatamente para voltar ao ciclo
+            buffer.chunks = [];
+            buffer.startTime = 0;
+            buffer.lastSoundTime = 0;
+            buffer.isReady = false;
+            
+            // Processa transcrição em paralelo (não bloqueia gravação)
+            this.transcribeBuffer(chunksToProcess, duration, bufferIndex).finally(() => {
+                // Quando terminar, marca como disponível novamente
+                buffer.isTranscribing = false;
+                this.callbacks.onLog(`Buffer ${bufferIndex + 1} disponível novamente`);
+            });
+            
+        } catch (error: any) {
+            buffer.isTranscribing = false;
+            this.callbacks.onError(`Erro ao processar buffer ${bufferIndex + 1}: ${error.message}`);
+        }
+    }
+
+    private async transcribeBuffer(chunks: Float32Array[], duration: number, bufferIndex: number) {
         try {
             // Converter Float32Array para Int16Array (PCM)
-            const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
             const pcmData = new Int16Array(totalLength);
             
             let offset = 0;
-            for (const chunk of audioChunks) {
+            for (const chunk of chunks) {
                 for (let i = 0; i < chunk.length; i++) {
                     const sample = Math.max(-1, Math.min(1, chunk[i]));
                     pcmData[offset + i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
@@ -179,20 +216,20 @@ export class AudioRecordingService {
             // Converter para Base64
             const base64Audio = this.arrayBufferToBase64(pcmData.buffer);
             
-            this.callbacks.onLog("Enviando áudio para transcrição...");
+            this.callbacks.onLog(`Buffer ${bufferIndex + 1}: Enviando ${Math.round(duration/1000)}s de áudio para transcrição...`);
             
             // Transcrever usando Gemini API
             const transcription = await this.transcribeAudio(base64Audio);
             
             if (transcription && transcription.trim()) {
                 this.callbacks.onTranscript(transcription.trim());
-                this.callbacks.onLog(`Transcrição recebida (${transcription.length} caracteres)`);
+                this.callbacks.onLog(`Buffer ${bufferIndex + 1}: Transcrição recebida (${transcription.length} caracteres)`);
             } else {
-                this.callbacks.onLog("Nenhuma transcrição retornada (possível silêncio)");
+                this.callbacks.onLog(`Buffer ${bufferIndex + 1}: Nenhuma transcrição retornada (possível silêncio)`);
             }
             
         } catch (error: any) {
-            this.callbacks.onError(`Erro ao transcrever áudio: ${error.message}`);
+            this.callbacks.onError(`Buffer ${bufferIndex + 1}: Erro ao transcrever: ${error.message}`);
         }
     }
 
@@ -226,6 +263,14 @@ export class AudioRecordingService {
         }
     }
 
+    private calculateVolume(buffer: Float32Array): number {
+        let sum = 0;
+        for (let i = 0; i < buffer.length; i++) {
+            sum += Math.abs(buffer[i]);
+        }
+        return sum / buffer.length;
+    }
+
     private arrayBufferToBase64(buffer: ArrayBuffer): string {
         const bytes = new Uint8Array(buffer);
         let binary = '';
@@ -239,6 +284,17 @@ export class AudioRecordingService {
         return this.mediaStream;
     }
 
+    getActiveBufferIndex(): number {
+        // Retorna o índice do buffer que está mais "ativo" (não está sendo transcrito)
+        for (let i = 0; i < this.buffers.length; i++) {
+            const idx = (this.activeBufferIndex + i) % this.buffers.length;
+            if (!this.buffers[idx].isTranscribing) {
+                return idx;
+            }
+        }
+        return this.activeBufferIndex;
+    }
+
     async stop() {
         if (!this.isRecording) return;
 
@@ -246,8 +302,19 @@ export class AudioRecordingService {
         this.isRecording = false;
         this.callbacks.onLog("Parando gravação...");
 
-        // Processar último chunk se houver
-        // (implementar se necessário)
+        // Processar últimos chunks se houver
+        const now = Date.now();
+        for (let i = 0; i < this.buffers.length; i++) {
+            const buffer = this.buffers[i];
+            if (buffer.chunks.length > 0 && !buffer.isTranscribing) {
+                const duration = now - buffer.startTime;
+                if (duration >= this.config.minChunkDuration) {
+                    buffer.isReady = true;
+                    buffer.isTranscribing = true;
+                    this.packageAndTranscribe(i, buffer, duration);
+                }
+            }
+        }
 
         // Limpar recursos
         if (this.audioProcessor) {
@@ -270,10 +337,14 @@ export class AudioRecordingService {
             this.mediaStream = null;
         }
 
-        this.chunkStartTime = 0;
-        this.lastSoundTime = 0;
+        // Reset buffers
+        this.buffers = [
+            { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
+            { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
+            { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
+        ];
+        this.activeBufferIndex = 0;
         
         this.callbacks.onLog("Gravação parada");
     }
 }
-

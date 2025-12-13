@@ -616,7 +616,7 @@ const App: React.FC = () => {
             setMediaStream(stream);
         }
         
-        setStatusMessage('🎙️ Gravando (detectando silêncio para segmentar)...');
+        setStatusMessage('🎙️ Gravando com 3 buffers rotativos (sem interrupções)...');
 
     }, [isListening, stopEverything, generateAndSetInsights, generateAndSetAnamnesis, anamnesisMode, log]);
 
