@@ -10,6 +10,11 @@ export class GeminiLiveService {
     private onErrorCallback: (error: string) => void;
     private onLogCallback: (message: string) => void;
     private isConnected: boolean = false;
+    private shouldStayConnected: boolean = false; // Flag para manter conexão ativa
+    private reconnectAttempts: number = 0;
+    private maxReconnectAttempts: number = 5;
+    private reconnectDelay: number = 2000; // 2 segundos
+    private isReconnecting: boolean = false;
 
     constructor(
         apiKey: string,
@@ -24,11 +29,35 @@ export class GeminiLiveService {
     }
 
     async connect() {
-        if (this.isConnected) return;
+        if (this.isConnected && !this.isReconnecting) return;
 
-        this.onLogCallback("Iniciando conexão com Gemini Live...");
+        this.shouldStayConnected = true;
+        this.reconnectAttempts = 0;
+
+        await this.attemptConnect();
+    }
+
+    private async attemptConnect() {
+        if (!this.shouldStayConnected) return;
+
+        this.onLogCallback(this.isReconnecting ? 
+            `Tentando reconectar (tentativa ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...` : 
+            "Iniciando conexão com Gemini Live...");
 
         try {
+            // Limpar conexão anterior se existir
+            if (this.connection) {
+                try {
+                    // Tenta fechar graciosamente se tiver método close/disconnect
+                    const conn = this.connection as any;
+                    if (typeof conn.close === 'function') conn.close();
+                    if (typeof conn.disconnect === 'function') conn.disconnect();
+                } catch (e) {
+                    // Ignora erros ao limpar
+                }
+                this.connection = null;
+            }
+
             const config: LiveConfig = {
                 generationConfig: {
                     responseModalities: "text", // Queremos apenas texto de volta (transcrição)
@@ -50,18 +79,32 @@ export class GeminiLiveService {
             });
 
             this.isConnected = true;
+            this.isReconnecting = false;
+            this.reconnectAttempts = 0;
             this.onLogCallback("Conexão WebSocket estabelecida com sucesso!");
 
-            // Iniciar captura de áudio
-            await this.startAudioCapture();
+            // Iniciar captura de áudio (se ainda não estiver ativa)
+            if (!this.mediaStream || !this.audioContext) {
+                await this.startAudioCapture();
+            }
 
             // Ouvir respostas do Gemini
             this.listenToResponses();
 
         } catch (error: any) {
             console.error("Erro ao conectar no Gemini Live:", error);
-            this.onErrorCallback(error.message || "Erro de conexão com Gemini Live");
-            this.disconnect();
+            this.isConnected = false;
+            
+            // Tenta reconectar se ainda deve ficar conectado
+            if (this.shouldStayConnected && this.reconnectAttempts < this.maxReconnectAttempts) {
+                this.reconnectAttempts++;
+                this.isReconnecting = true;
+                this.onLogCallback(`Falha na conexão. Tentando novamente em ${this.reconnectDelay / 1000}s...`);
+                setTimeout(() => this.attemptConnect(), this.reconnectDelay);
+            } else {
+                this.onErrorCallback(error.message || "Erro de conexão com Gemini Live");
+                this.disconnect();
+            }
         }
     }
 
@@ -145,12 +188,39 @@ export class GeminiLiveService {
             }
             
             this.onLogCallback("Loop de mensagens terminou (stream fechado)");
+            
+            // Se ainda deve ficar conectado, tenta reconectar
+            if (this.shouldStayConnected && this.isConnected) {
+                this.onLogCallback("Stream fechou, mas mantendo conexão ativa. Tentando reabrir stream...");
+                // Pequeno delay antes de tentar novamente
+                setTimeout(() => {
+                    if (this.shouldStayConnected && this.isConnected && this.connection) {
+                        this.listenToResponses();
+                    }
+                }, 1000);
+            }
         } catch (error: any) {
             console.error("Erro no stream de resposta:", error);
             const errorDetails = error?.message || String(error);
             this.onLogCallback(`Erro detalhado: ${errorDetails}`);
-            this.onErrorCallback("Erro no stream de resposta: " + errorDetails);
-            this.disconnect();
+            
+            // Não desconecta imediatamente - tenta reconectar se deve ficar conectado
+            if (this.shouldStayConnected) {
+                this.isConnected = false;
+                this.onLogCallback("Erro no stream, tentando reconectar...");
+                
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    this.isReconnecting = true;
+                    setTimeout(() => this.attemptConnect(), this.reconnectDelay);
+                } else {
+                    this.onErrorCallback("Erro no stream de resposta após múltiplas tentativas: " + errorDetails);
+                    this.disconnect();
+                }
+            } else {
+                this.onErrorCallback("Erro no stream de resposta: " + errorDetails);
+                this.disconnect();
+            }
         }
     }
 
@@ -206,8 +276,22 @@ export class GeminiLiveService {
     }
 
     disconnect() {
+        this.shouldStayConnected = false; // Para reconexões automáticas
         this.isConnected = false;
+        this.isReconnecting = false;
         this.onLogCallback("Desconectando...");
+
+        // Fechar conexão graciosamente
+        if (this.connection) {
+            try {
+                const conn = this.connection as any;
+                if (typeof conn.close === 'function') conn.close();
+                if (typeof conn.disconnect === 'function') conn.disconnect();
+            } catch (e) {
+                // Ignora erros ao fechar
+            }
+            this.connection = null;
+        }
 
         if (this.mediaStream) {
             this.mediaStream.getTracks().forEach(track => track.stop());
@@ -224,7 +308,6 @@ export class GeminiLiveService {
             this.audioContext = null;
         }
 
-        this.connection = null;
         this.onLogCallback("Desconectado.");
     }
 
