@@ -31,7 +31,9 @@ export class AudioRecordingService {
     private isRecording: boolean = false;
     private shouldStop: boolean = false;
     
-    // Três buffers rotativos
+    // Três buffers rotativos para evitar gaps na gravação
+    // IMPORTANTE: A API do Gemini suporta múltiplas requisições paralelas com UMA única chave
+    // Não é necessário ter 3 chaves diferentes - uma chave pode processar múltiplos buffers simultaneamente
     private buffers: AudioBuffer[] = [
         { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
         { chunks: [], startTime: 0, lastSoundTime: 0, isReady: false, isTranscribing: false },
@@ -41,7 +43,7 @@ export class AudioRecordingService {
     
     private callbacks: AudioRecordingCallbacks;
     private config: Required<AudioRecordingConfig>;
-    private client: GoogleGenAI;
+    private client: GoogleGenAI; // Um único cliente pode fazer múltiplas requisições paralelas
     private apiKey: string;
 
     constructor(
@@ -179,17 +181,23 @@ export class AudioRecordingService {
             // Cria uma cópia dos chunks para processar
             const chunksToProcess = [...buffer.chunks];
             
-            // Libera o buffer imediatamente para voltar ao ciclo
+            // Libera o buffer imediatamente para voltar ao ciclo (CRÍTICO: não espera transcrição)
             buffer.chunks = [];
             buffer.startTime = 0;
             buffer.lastSoundTime = 0;
             buffer.isReady = false;
             
+            // Conta quantas transcrições estão ativas
+            const activeTranscriptions = this.buffers.filter(b => b.isTranscribing).length;
+            this.callbacks.onLog(`Iniciando transcrição do Buffer ${bufferIndex + 1} (${activeTranscriptions + 1} transcrições ativas em paralelo)`);
+            
             // Processa transcrição em paralelo (não bloqueia gravação)
+            // IMPORTANTE: Não await aqui - processa em background
             this.transcribeBuffer(chunksToProcess, duration, bufferIndex).finally(() => {
                 // Quando terminar, marca como disponível novamente
                 buffer.isTranscribing = false;
-                this.callbacks.onLog(`Buffer ${bufferIndex + 1} disponível novamente`);
+                const remaining = this.buffers.filter(b => b.isTranscribing).length;
+                this.callbacks.onLog(`Buffer ${bufferIndex + 1} concluído (${remaining} transcrições ainda ativas)`);
             });
             
         } catch (error: any) {
@@ -215,10 +223,11 @@ export class AudioRecordingService {
 
             // Converter para Base64
             const base64Audio = this.arrayBufferToBase64(pcmData.buffer);
+            const audioSizeKB = Math.round(base64Audio.length * 3 / 4 / 1024); // Aproximação: base64 é ~33% maior
             
-            this.callbacks.onLog(`Buffer ${bufferIndex + 1}: Enviando ${Math.round(duration/1000)}s de áudio para transcrição...`);
+            this.callbacks.onLog(`Buffer ${bufferIndex + 1}: Enviando ${Math.round(duration/1000)}s de áudio (${audioSizeKB}KB) para Gemini Flash...`);
             
-            // Transcrever usando Gemini API
+            // Transcrever usando Gemini API (processamento paralelo - não bloqueia outros buffers)
             const transcription = await this.transcribeAudio(base64Audio);
             
             if (transcription && transcription.trim()) {
@@ -234,7 +243,9 @@ export class AudioRecordingService {
     }
 
     private async transcribeAudio(base64Audio: string): Promise<string> {
+        const startTime = Date.now();
         try {
+            // Chamada à API Gemini - pode rodar em paralelo com outras chamadas
             const response = await this.client.models.generateContent({
                 model: 'gemini-2.0-flash-exp',
                 contents: [{
@@ -257,8 +268,13 @@ export class AudioRecordingService {
                 }
             });
 
+            const duration = Date.now() - startTime;
+            this.callbacks.onLog(`API Gemini respondeu em ${Math.round(duration/1000)}s`);
+            
             return response.text || '';
         } catch (error: any) {
+            const duration = Date.now() - startTime;
+            this.callbacks.onLog(`Erro na API Gemini após ${Math.round(duration/1000)}s: ${error.message}`);
             throw new Error(`Falha na transcrição: ${error.message}`);
         }
     }
