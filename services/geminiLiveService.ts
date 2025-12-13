@@ -71,10 +71,64 @@ export class GeminiLiveService {
         this.onLogCallback("Aguardando respostas do Gemini...");
 
         try {
-            // CORREÇÃO: Usar o método stream() que retorna um async iterable
-            const stream = this.connection.stream();
+            // DEBUG: Log das propriedades disponíveis na conexão
+            const conn = this.connection as any;
+            const availableMethods = Object.getOwnPropertyNames(conn).filter(prop => typeof conn[prop] === 'function');
+            const availableProps = Object.getOwnPropertyNames(conn).filter(prop => typeof conn[prop] !== 'function');
+            this.onLogCallback(`Métodos disponíveis: ${availableMethods.join(', ') || 'nenhum'}`);
+            this.onLogCallback(`Propriedades disponíveis: ${availableProps.join(', ') || 'nenhum'}`);
+            console.log("LiveConnection object:", conn);
+            console.log("Connection prototype:", Object.getPrototypeOf(conn));
             
+            // Tenta diferentes formas de acessar o stream
+            let stream: AsyncIterable<any>;
+            
+            // Abordagem 1: Verifica se tem Symbol.asyncIterator (é iterável diretamente)
+            if (conn && typeof conn[Symbol.asyncIterator] === 'function') {
+                this.onLogCallback("Conexão é async iterable diretamente");
+                stream = conn;
+            }
+            // Abordagem 2: Tenta método stream()
+            else if (typeof conn.stream === 'function') {
+                this.onLogCallback("Usando método stream()");
+                stream = conn.stream();
+            }
+            // Abordagem 3: Tenta propriedade stream
+            else if (conn.stream && typeof conn.stream[Symbol.asyncIterator] === 'function') {
+                this.onLogCallback("Usando propriedade stream");
+                stream = conn.stream;
+            }
+            // Abordagem 4: Tenta métodos alternativos comuns
+            else if (typeof conn.getMessageStream === 'function') {
+                this.onLogCallback("Usando getMessageStream()");
+                stream = conn.getMessageStream();
+            }
+            else if (typeof conn.receive === 'function') {
+                this.onLogCallback("Usando receive()");
+                stream = conn.receive();
+            }
+            else {
+                // Última tentativa: verifica propriedades privadas
+                const possibleStreams = ['_stream', '_messageStream', '_receiveStream', 'messageStream'];
+                const foundStream = possibleStreams.find(prop => conn[prop] && typeof conn[prop][Symbol.asyncIterator] === 'function');
+                
+                if (foundStream) {
+                    this.onLogCallback(`Usando ${foundStream}`);
+                    stream = conn[foundStream];
+                } else {
+                    const errorMsg = `Não foi possível encontrar stream iterável. Métodos: ${availableMethods.join(', ') || 'nenhum'}`;
+                    this.onLogCallback(errorMsg);
+                    throw new Error(errorMsg);
+                }
+            }
+            
+            this.onLogCallback("Iniciando loop de mensagens...");
             for await (const message of stream) {
+                if (!this.isConnected) {
+                    this.onLogCallback("Desconectado durante loop, saindo...");
+                    break;
+                }
+                
                 if (message.serverContent?.modelTurn?.parts) {
                     for (const part of message.serverContent.modelTurn.parts) {
                         if (part.text) {
@@ -89,9 +143,13 @@ export class GeminiLiveService {
                     this.onTranscriptCallback("", true);
                 }
             }
-        } catch (error) {
+            
+            this.onLogCallback("Loop de mensagens terminou (stream fechado)");
+        } catch (error: any) {
             console.error("Erro no stream de resposta:", error);
-            this.onErrorCallback("Erro no stream de resposta: " + String(error));
+            const errorDetails = error?.message || String(error);
+            this.onLogCallback(`Erro detalhado: ${errorDetails}`);
+            this.onErrorCallback("Erro no stream de resposta: " + errorDetails);
             this.disconnect();
         }
     }
