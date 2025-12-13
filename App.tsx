@@ -19,7 +19,7 @@ import { SessionTimer } from './components/SessionTimer';
 
 // Serviços - lazy load apenas quando necessário
 import { generateInsightsWithFailover, generateAnamnesisWithFailover } from './services/geminiService';
-import { GeminiLiveService } from './services/geminiLiveService';
+import { AudioRecordingService } from './services/audioRecordingService';
 import { tokenTracker, TokenStats } from './services/tokenTracker';
 import { medicalKnowledgeService } from './services/medicalKnowledgeService';
 import { proceduralMemoryService } from './services/proceduralMemoryService';
@@ -201,7 +201,7 @@ const App: React.FC = () => {
 
     // Refs
     const transcriptionHistoryRef = useRef<string[]>([]);
-    const geminiLiveServiceRef = useRef<GeminiLiveService | null>(null);
+    const audioRecordingServiceRef = useRef<AudioRecordingService | null>(null);
 
     // --- Initialize Knowledge Services ---
     useEffect(() => {
@@ -338,11 +338,11 @@ const App: React.FC = () => {
     }, [anamnesisPrompt, insightsProvider, apiKeys, log, anamnesis]);
 
     const stopEverything = useCallback(() => {
-        log('INFO', 'Parando Gemini Live e processos...');
+        log('INFO', 'Parando gravação e processos...');
 
-        if (geminiLiveServiceRef.current) {
-            geminiLiveServiceRef.current.disconnect();
-            geminiLiveServiceRef.current = null;
+        if (audioRecordingServiceRef.current) {
+            audioRecordingServiceRef.current.stop();
+            audioRecordingServiceRef.current = null;
         }
 
         if (mediaStream) {
@@ -554,7 +554,7 @@ const App: React.FC = () => {
         log('INFO', 'Gerando anamnese manualmente...');
     }, [transcriptionHistory, generateAndSetAnamnesis, log]);
 
-    // --- NEW: Handle Toggle Listening with Gemini Live ---
+    // --- Handle Toggle Listening with Audio Recording (Pacotes) ---
     const handleToggleListening = useCallback(async () => {
         if (isListening) {
             stopEverything();
@@ -568,13 +568,13 @@ const App: React.FC = () => {
         }
 
         setIsListening(true);
-        setStatusMessage('Conectando ao Gemini Live...');
+        setStatusMessage('Iniciando gravação...');
 
-        const service = new GeminiLiveService(
+        const service = new AudioRecordingService(
             GEMINI_API_KEY,
-            (text, isFinal) => {
-                if (isFinal) {
-                    // Texto final confirmado
+            {
+                onTranscript: (text) => {
+                    // Texto transcrito de um pacote de áudio
                     setTranscriptionHistory(prev => {
                         const newHistory = [...prev, text];
                         const fullTranscript = newHistory.join('\n\n');
@@ -587,27 +587,36 @@ const App: React.FC = () => {
 
                         return newHistory;
                     });
-                    setCurrentLiveTranscript(''); // Limpa o buffer visual
-                    log('API', 'Turno finalizado e adicionado ao histórico.');
-                } else {
-                    // Texto em tempo real (streaming)
-                    setCurrentLiveTranscript(prev => prev + text);
+                    log('API', 'Pacote transcrito e adicionado ao histórico.');
+                },
+                onError: (error) => {
+                    setStatusMessage(`Erro: ${error}`);
+                    setLastError(error);
+                    log('ERROR', error);
+                    setIsListening(false);
+                },
+                onLog: (message) => {
+                    log('INFO', `[Gravação] ${message}`);
                 }
             },
-            (error) => {
-                setStatusMessage(`Erro: ${error}`);
-                setLastError(error);
-                log('ERROR', error);
-                setIsListening(false);
-            },
-            (message) => {
-                log('INFO', `[Gemini Live] ${message}`);
+            {
+                silenceThreshold: 0.01, // 1% do volume máximo
+                silenceDuration: 2000, // 2 segundos de silêncio
+                minChunkDuration: 3000, // Mínimo 3 segundos
+                maxChunkDuration: 60000, // Máximo 60 segundos
             }
         );
 
-        geminiLiveServiceRef.current = service;
-        await service.connect();
-        setStatusMessage('🎙️ Ouvindo (Gemini Live)...');
+        audioRecordingServiceRef.current = service;
+        await service.start();
+        
+        // Atualizar mediaStream para visualização de forma de onda
+        const stream = service.getMediaStream();
+        if (stream) {
+            setMediaStream(stream);
+        }
+        
+        setStatusMessage('🎙️ Gravando (detectando silêncio para segmentar)...');
 
     }, [isListening, stopEverything, generateAndSetInsights, generateAndSetAnamnesis, anamnesisMode, log]);
 
