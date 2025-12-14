@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 
-export type WaveformStyle = 'line' | 'bars';
+export type WaveformStyle = 'line' | 'bars' | 'traktor';
 
 interface WaveformVisualizerProps {
     stream: MediaStream;
@@ -8,144 +8,209 @@ interface WaveformVisualizerProps {
     style: WaveformStyle;
 }
 
-const getThemeColor = (variableName: string): string => {
-    return getComputedStyle(document.body).getPropertyValue(variableName).trim() || '#ffffff';
+const getThemeColor = (variableName: string, fallback: string): string => {
+    return getComputedStyle(document.body).getPropertyValue(variableName).trim() || fallback;
 };
-
-const hexToRgb = (hex: string) => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16)
-    } : null;
-};
-
-const rgbToHex = (r: number, g: number, b: number) => {
-    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-};
-
-const interpolateColor = (color1: string, color2: string, factor: number) => {
-    const rgb1 = hexToRgb(color1);
-    const rgb2 = hexToRgb(color2);
-    if (!rgb1 || !rgb2) return color1;
-
-    const r = Math.round(rgb1.r + factor * (rgb2.r - rgb1.r));
-    const g = Math.round(rgb1.g + factor * (rgb2.g - rgb1.g));
-    const b = Math.round(rgb1.b + factor * (rgb2.b - rgb1.b));
-
-    return rgbToHex(r, g, b);
-};
-
 
 export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({ stream, isListening, style }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
     const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-    const dataArrayRef = useRef<Uint8Array | null>(null);
     const animationFrameId = useRef<number>(0);
 
+    // Buffer for the scrolling waveform (Traktor style)
+    // Stores RMS (amplitude) values
+    const waveformBufferRef = useRef<number[]>([]);
+    const maxBufferPoints = 1000; // Adjust for scroll speed/density
+
     useEffect(() => {
-        if (isListening && stream) {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const analyser = audioContext.createAnalyser();
-            analyser.smoothingTimeConstant = 0.8;
-            
-            if (style === 'bars') {
-                analyser.fftSize = 256;
-            } else { // line
-                analyser.fftSize = 2048;
-            }
-
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            
-            const source = audioContext.createMediaStreamSource(stream);
-            source.connect(analyser);
-
-            audioContextRef.current = audioContext;
-            analyserRef.current = analyser;
-            sourceRef.current = source;
-            dataArrayRef.current = dataArray;
-
-            const draw = () => {
-                if (!analyserRef.current || !dataArrayRef.current || !canvasRef.current) return;
-                
-                const canvas = canvasRef.current;
-                const canvasCtx = canvas.getContext('2d');
-                if (!canvasCtx) return;
-
-                const { width, height } = canvas;
-                canvasCtx.clearRect(0, 0, width, height);
-
-                const accentColor = getThemeColor('--color-text-accent');
-                const peakColor = getThemeColor('--color-waveform-peak');
-                const gradient = canvasCtx.createLinearGradient(0, 0, width, 0);
-                gradient.addColorStop(0, accentColor);
-                gradient.addColorStop(1, getThemeColor('--color-gradient-to'));
-
-                if (style === 'bars') {
-                    analyserRef.current.getByteFrequencyData(dataArrayRef.current);
-                    const barWidth = (width / bufferLength) * 1.5;
-                    let barHeight;
-                    let x = 0;
-
-                    for (let i = 0; i < bufferLength; i++) {
-                        barHeight = dataArrayRef.current[i] * (height / 255);
-                        canvasCtx.fillStyle = gradient;
-                        canvasCtx.fillRect(x, height - barHeight, barWidth, barHeight);
-                        x += barWidth + 2; // Add 2 for gap
-                    }
-                } else { // line
-                    analyserRef.current.getByteTimeDomainData(dataArrayRef.current);
-                    
-                    let sum = 0;
-                    for(let i = 0; i < bufferLength; i++) {
-                        sum += Math.abs(dataArrayRef.current[i] - 128);
-                    }
-                    const avg = sum / bufferLength;
-                    const intensity = Math.min(1, avg / 30); // Normalize and cap intensity
-                    const dynamicColor = interpolateColor(accentColor, peakColor, intensity);
-
-                    canvasCtx.lineWidth = 3;
-                    canvasCtx.strokeStyle = dynamicColor;
-                    canvasCtx.beginPath();
-                    
-                    const sliceWidth = width * 1.0 / bufferLength;
-                    let x = 0;
-
-                    for (let i = 0; i < bufferLength; i++) {
-                        const v = dataArrayRef.current[i] / 128.0; // Normalize to 0-2 range
-                        const y = v * height / 2;
-
-                        if (i === 0) {
-                            canvasCtx.moveTo(x, y);
-                        } else {
-                            canvasCtx.lineTo(x, y);
-                        }
-                        x += sliceWidth;
-                    }
-                    canvasCtx.lineTo(canvas.width, canvas.height / 2);
-                    canvasCtx.stroke();
-                }
-                
-                animationFrameId.current = requestAnimationFrame(draw);
-            };
-
-            draw();
-
-        }
-
-        return () => {
-            cancelAnimationFrame(animationFrameId.current);
+        if (!isListening || !stream) {
+            // Clean up if stopped
             if (audioContextRef.current) {
                 audioContextRef.current.close().catch(console.error);
                 audioContextRef.current = null;
             }
-            if(sourceRef.current){
+            if (sourceRef.current) {
                 sourceRef.current.disconnect();
                 sourceRef.current = null;
+            }
+            if (animationFrameId.current) {
+                cancelAnimationFrame(animationFrameId.current);
+            }
+            // Clear canvas
+            if (canvasRef.current) {
+                const ctx = canvasRef.current.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+            }
+            return;
+        }
+
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioContext = new AudioContextClass();
+        const analyser = audioContext.createAnalyser();
+        analyser.smoothingTimeConstant = 0.1; // Fast response for Traktor style
+        analyser.fftSize = 2048;
+
+        const source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        audioContextRef.current = audioContext;
+        analyserRef.current = analyser;
+        sourceRef.current = source;
+
+        // Initialize buffer
+        if (waveformBufferRef.current.length === 0) {
+            waveformBufferRef.current = new Array(maxBufferPoints).fill(0);
+        }
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const draw = () => {
+            if (!analyserRef.current || !canvasRef.current) return;
+
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            // Handle high-DPI displays safely inside the loop or pre-calculate
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            // Only resize if dimensions match (avoids flickering, but simple check is needed)
+            if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+                ctx.scale(dpr, dpr);
+            }
+            const width = rect.width;
+            const height = rect.height;
+
+            // Clear with a slight fade effect for strict line/bar modes, or full clear for scrolling
+            ctx.clearRect(0, 0, width, height);
+
+            // Get Colors
+            const accentColor = getThemeColor('--color-text-accent', '#00d4ff');
+            const peakColor = getThemeColor('--color-waveform-peak', '#ffffff');
+            const gridColor = 'rgba(255, 255, 255, 0.1)';
+
+            if (style === 'traktor') {
+                // --- TRAKTOR STYLE SCROLLING WAVEFORM ---
+                analyserRef.current.getByteTimeDomainData(dataArray);
+
+                // Calculate RMS (Root Mean Square) for this frame to get a solid amplitude value
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    const sample = (dataArray[i] - 128) / 128.0;
+                    sum += sample * sample;
+                }
+                const rms = Math.sqrt(sum / dataArray.length);
+
+                // Amplify a bit for visual impact
+                const value = Math.min(1.0, rms * 5.0);
+
+                // Update Buffer: Shift Left, Push New
+                waveformBufferRef.current.shift();
+                waveformBufferRef.current.push(value);
+
+                // Draw Grid/Center Line
+                ctx.beginPath();
+                ctx.strokeStyle = gridColor;
+                ctx.lineWidth = 1;
+                ctx.moveTo(0, height / 2);
+                ctx.lineTo(width, height / 2);
+                ctx.stroke();
+
+                // Draw Waveform
+                // Create gradient based on height
+                const gradient = ctx.createLinearGradient(0, 0, 0, height);
+                gradient.addColorStop(0, accentColor);     // Top
+                gradient.addColorStop(0.5, peakColor); // Center (Hot)
+                gradient.addColorStop(1, accentColor);     // Bottom
+
+                ctx.fillStyle = gradient;
+
+                // Draw Mirrored Bars (creating a solid shape)
+                const buffer = waveformBufferRef.current;
+                const barWidth = width / maxBufferPoints; // Ensure it fills the screen
+
+                // Optimisation: Begin a path and fill it
+                ctx.beginPath();
+                ctx.moveTo(0, height / 2);
+
+                // Top Half
+                for (let i = 0; i < buffer.length; i++) {
+                    const amplitude = buffer[i] * (height / 2);
+                    // Smooth curve approach
+                    const x = i * barWidth;
+                    const y = (height / 2) - amplitude;
+                    ctx.lineTo(x, y);
+                }
+
+                // Bottom Half (Mirrored)
+                for (let i = buffer.length - 1; i >= 0; i--) {
+                    const amplitude = buffer[i] * (height / 2);
+                    const x = i * barWidth;
+                    const y = (height / 2) + amplitude;
+                    ctx.lineTo(x, y);
+                }
+
+                ctx.closePath();
+                ctx.fill();
+
+                // Optional: Add a "Playhead" line at the right
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(width - 2, 0);
+                ctx.lineTo(width - 2, height);
+                ctx.stroke();
+
+            } else if (style === 'bars') {
+                // Classic Bars
+                analyserRef.current.getByteFrequencyData(dataArray);
+                const barWidth = (width / dataArray.length) * 2.5;
+                let x = 0;
+
+                const gradient = ctx.createLinearGradient(0, height, 0, 0);
+                gradient.addColorStop(0, accentColor);
+                gradient.addColorStop(1, peakColor);
+                ctx.fillStyle = gradient;
+
+                for (let i = 0; i < dataArray.length; i++) {
+                    const barHeight = (dataArray[i] / 255) * height;
+                    ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+                    x += barWidth + 1;
+                }
+
+            } else {
+                // Oscilloscope Line
+                analyserRef.current.getByteTimeDomainData(dataArray);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = accentColor;
+                ctx.beginPath();
+
+                const sliceWidth = width / dataArray.length;
+                let x = 0;
+
+                for (let i = 0; i < dataArray.length; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = v * height / 2;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                ctx.lineTo(width, height / 2);
+                ctx.stroke();
+            }
+
+            animationFrameId.current = requestAnimationFrame(draw);
+        };
+
+        draw();
+
+        return () => {
+            if (animationFrameId.current) {
+                cancelAnimationFrame(animationFrameId.current);
             }
         };
 

@@ -20,6 +20,7 @@ import { SessionTimer } from './components/SessionTimer';
 // Serviços - lazy load apenas quando necessário
 import { generateInsightsWithFailover, generateAnamnesisWithFailover } from './services/geminiService';
 import { AudioRecordingService } from './services/audioRecordingService';
+import { GeminiLiveService } from './services/geminiLiveService';
 import { tokenTracker, TokenStats } from './services/tokenTracker';
 import { medicalKnowledgeService } from './services/medicalKnowledgeService';
 import { proceduralMemoryService } from './services/proceduralMemoryService';
@@ -186,7 +187,7 @@ const App: React.FC = () => {
     const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
     const [logoSize, setLogoSize] = useState<number>(24);
     const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
-    const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>('line');
+    const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>('traktor');
     const [insightsProvider, setInsightsProvider] = useState<InsightProvider>('gemini');
     const [activeInsightsProvider, setActiveInsightsProvider] = useState<InsightProvider | null>('gemini');
     const [voiceName, setVoiceName] = useState<PrebuiltVoice>('Zephyr');
@@ -554,7 +555,7 @@ const App: React.FC = () => {
         log('INFO', 'Gerando anamnese manualmente...');
     }, [transcriptionHistory, generateAndSetAnamnesis, log]);
 
-    // --- Handle Toggle Listening with Audio Recording (Pacotes) ---
+    // --- Handle Toggle Listening with Gemini Live (WebSocket) ---
     const handleToggleListening = useCallback(async () => {
         if (isListening) {
             stopEverything();
@@ -568,55 +569,65 @@ const App: React.FC = () => {
         }
 
         setIsListening(true);
-        setStatusMessage('Iniciando gravação...');
+        setStatusMessage('Conectando ao Gemini Live...');
 
-        const service = new AudioRecordingService(
+        const service = new GeminiLiveService(
             GEMINI_API_KEY,
-            {
-                onTranscript: (text) => {
-                    // Texto transcrito de um pacote de áudio
-                    setTranscriptionHistory(prev => {
-                        const newHistory = [...prev, text];
-                        const fullTranscript = newHistory.join('\n\n');
-
-                        // Dispara gerações em background
-                        generateAndSetInsights(fullTranscript);
-                        if (anamnesisMode === 'live') {
-                            generateAndSetAnamnesis(fullTranscript);
+            (text, isFinal) => {
+                if (isFinal) {
+                    // Turno completo - mover acumulado para histórico
+                    setCurrentLiveTranscript(current => {
+                        if (current.trim()) {
+                            setTranscriptionHistory(prev => {
+                                const newHistory = [...prev, current];
+                                const fullTranscript = newHistory.join('\n\n');
+                                // Trigger background tasks
+                                generateAndSetInsights(fullTranscript);
+                                if (anamnesisMode === 'live') {
+                                    generateAndSetAnamnesis(fullTranscript);
+                                }
+                                return newHistory;
+                            });
                         }
-
-                        return newHistory;
+                        return ''; // Limpa atual
                     });
-                    log('API', 'Pacote transcrito e adicionado ao histórico.');
-                },
-                onError: (error) => {
-                    setStatusMessage(`Erro: ${error}`);
-                    setLastError(error);
-                    log('ERROR', error);
-                    setIsListening(false);
-                },
-                onLog: (message) => {
-                    log('INFO', `[Gravação] ${message}`);
+                } else {
+                    // Texto incremental (stream)
+                    setCurrentLiveTranscript(prev => prev + text);
                 }
             },
-            {
-                silenceThreshold: 0.01, // 1% do volume máximo
-                silenceDuration: 2000, // 2 segundos de silêncio
-                minChunkDuration: 3000, // Mínimo 3 segundos
-                maxChunkDuration: 60000, // Máximo 60 segundos
+            (error) => {
+                setStatusMessage(`Erro: ${error}`);
+                setLastError(error);
+                log('ERROR', error);
+                setIsListening(false);
+            },
+            (message) => {
+                // Log interno do serviço
+                if (message.includes('Conexão WebSocket estabelecida')) {
+                    setStatusMessage('🟢 Gemini Live Conectado (Escutando...)');
+                }
+                log('INFO', `[Gemini Live] ${message}`);
             }
         );
 
-        audioRecordingServiceRef.current = service;
-        await service.start();
-        
-        // Atualizar mediaStream para visualização de forma de onda
-        const stream = service.getMediaStream();
-        if (stream) {
-            setMediaStream(stream);
+        // Armazenamos como any para facilitar a troca, mas idealmente atualizaríamos o tipo da ref
+        (audioRecordingServiceRef.current as any) = service;
+
+        try {
+            await service.connect(); // Inicia conexão e áudio
+
+            // Hack para pegar o mediaStream do serviço Live para o visualizador
+            // Assumindo que criamos o método getMediaStream no GeminiLiveService
+            const stream = service.getMediaStream();
+            if (stream) {
+                setMediaStream(stream);
+            }
+
+        } catch (e: any) {
+            setStatusMessage(`Erro ao iniciar: ${e.message}`);
+            setIsListening(false);
         }
-        
-        setStatusMessage('🎙️ Gravando com 3 buffers rotativos (sem interrupções)...');
 
     }, [isListening, stopEverything, generateAndSetInsights, generateAndSetAnamnesis, anamnesisMode, log]);
 

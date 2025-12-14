@@ -331,4 +331,8 @@ export class GeminiLiveService {
         }
         return window.btoa(binary);
     }
+
+    getMediaStream(): MediaStream | null {
+        return this.mediaStream;
+    }
 }

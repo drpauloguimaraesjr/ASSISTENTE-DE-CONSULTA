@@ -8,7 +8,7 @@ import { validateOpenAIApiKey, validateGrokApiKey } from '../services/apiValidat
 import { firebaseConfigPlaceholder } from '../services/firebaseService';
 import { TokenStats } from '../services/tokenTracker';
 
-export type WaveformStyle = 'line' | 'bars';
+export type WaveformStyle = 'line' | 'bars' | 'traktor';
 export type InsightProvider = 'gemini' | 'openai' | 'grok';
 export type PrebuiltVoice = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
@@ -59,27 +59,27 @@ const PLAUS_NOTE_REFERENCE = `Este é um exemplo de um prompt de anamnese detalh
 ... (restante do prompt de referência)
 ---`;
 
-const CloseIcon: React.FC<{className?: string}> = ({ className }) => (
+const CloseIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
     </svg>
 );
 
-const UploadIcon: React.FC<{className?: string}> = ({ className }) => (
+const UploadIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
+        <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
     </svg>
 );
 
-const CheckCircleIcon: React.FC<{className?: string}> = ({ className }) => (
+const CheckCircleIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
     </svg>
 );
 
-const ExclamationCircleIcon: React.FC<{className?: string}> = ({ className }) => (
+const ExclamationCircleIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
     </svg>
 );
 
@@ -94,6 +94,7 @@ const themes: { id: Theme; name: string; colors: string[] }[] = [
 const waveformStyles: { id: WaveformStyle; name: string }[] = [
     { id: 'line', name: 'Linha' },
     { id: 'bars', name: 'Barras' },
+    { id: 'traktor', name: 'Traktor (DJ)' },
 ];
 
 const voices: { id: PrebuiltVoice; name: string }[] = [
@@ -141,7 +142,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
 
     const handleReset = () => {
         const defaultPrompt = onResetPrompt();
-        setSettings(prev => ({...prev, prompt: defaultPrompt}));
+        setSettings(prev => ({ ...prev, prompt: defaultPrompt }));
     };
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,16 +150,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
-                setSettings(prev => ({...prev, logoUrl: reader.result as string}));
+                setSettings(prev => ({ ...prev, logoUrl: reader.result as string }));
             };
             reader.readAsDataURL(file);
         }
     };
 
-     const handleTestApiKey = async (provider: 'openai' | 'grok') => {
+    const handleTestApiKey = async (provider: 'openai' | 'grok') => {
         const key = settings.apiKeys[provider];
         if (!key) {
-            setValidationStatus(prev => ({...prev, [provider]: { status: 'error', message: 'A chave de API não pode estar vazia.' }}));
+            setValidationStatus(prev => ({ ...prev, [provider]: { status: 'error', message: 'A chave de API não pode estar vazia.' } }));
             return;
         }
         setValidationStatus(prev => ({ ...prev, [provider]: { status: 'loading', message: '' } }));
@@ -167,14 +168,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
             if (isValid) {
                 setValidationStatus(prev => ({ ...prev, [provider]: { status: 'success', message: 'Sucesso!' } }));
             } else {
-                 throw new Error("Chave de API inválida ou expirada.");
+                throw new Error("Chave de API inválida ou expirada.");
             }
         } catch (error: any) {
-             setValidationStatus(prev => ({...prev, [provider]: { status: 'error', message: error.message || 'Falha no teste.' }}));
+            setValidationStatus(prev => ({ ...prev, [provider]: { status: 'error', message: error.message || 'Falha no teste.' } }));
         }
     };
-    
-     const handleCopyConfig = () => {
+
+    const handleCopyConfig = () => {
         const configText = JSON.stringify(firebaseConfigPlaceholder, null, 2);
         navigator.clipboard.writeText(configText).then(() => {
             setCopyStatus('Copiado!');
@@ -195,10 +196,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                     </p>
                 </div>
             </div>
-            
+
             <div className='space-y-4'>
-                 <h4 className="text-lg font-semibold text-primary">Passo a Passo</h4>
-                 <ol className="list-decimal list-inside text-sm text-secondary space-y-3">
+                <h4 className="text-lg font-semibold text-primary">Passo a Passo</h4>
+                <ol className="list-decimal list-inside text-sm text-secondary space-y-3">
                     <li>Acesse o <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="underline hover:text-accent">Console do Firebase</a> e clique em "Adicionar projeto".</li>
                     <li>Siga as instruções para criar um novo projeto (você pode desativar o Google Analytics).</li>
                     <li>No painel do seu novo projeto, clique no ícone de engrenagem ao lado de "Visão geral do projeto" e vá para <strong className="text-primary">Configurações do projeto</strong>.</li>
@@ -213,15 +214,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                     <li>
                         De volta ao console do Firebase, no menu à esquerda, vá para <strong className="text-primary">Authentication</strong>. Clique em "Começar" e, na aba "Sign-in method", ative o provedor <strong className="text-primary">Google</strong>.
                     </li>
-                     <li>
+                    <li>
                         No menu, vá para <strong className="text-primary">Cloud Firestore</strong>. Clique em "Criar banco de dados", inicie em <strong className="text-primary">modo de produção</strong> e escolha um local para os servidores.
                     </li>
-                     <li>Salve o arquivo e recarregue o aplicativo. Se tudo estiver correto, a tela de login desaparecerá e você poderá usar o app.</li>
+                    <li>Salve o arquivo e recarregue o aplicativo. Se tudo estiver correto, a tela de login desaparecerá e você poderá usar o app.</li>
                 </ol>
             </div>
 
             <div>
-                 <h4 className="text-lg font-semibold text-primary mb-2">Objeto de Configuração de Exemplo</h4>
+                <h4 className="text-lg font-semibold text-primary mb-2">Objeto de Configuração de Exemplo</h4>
                 <div className="bg-primary/50 border border-secondary rounded-md p-4 text-sm font-mono whitespace-pre-wrap relative">
                     <button onClick={handleCopyConfig} className="absolute top-2 right-2 text-xs font-semibold text-primary bg-slate-600/50 px-2 py-1 rounded hover:bg-slate-500/50">{copyStatus}</button>
                     <code className='text-tertiary'>{JSON.stringify(firebaseConfigPlaceholder, null, 2)}</code>
@@ -239,18 +240,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                 </p>
                 <textarea
                     value={settings.prompt}
-                    onChange={(e) => setSettings(prev => ({...prev, prompt: e.target.value}))}
+                    onChange={(e) => setSettings(prev => ({ ...prev, prompt: e.target.value }))}
                     className="w-full h-96 bg-primary border border-secondary rounded-md p-3 text-sm font-mono focus:ring-2 focus-ring focus:border-accent transition-colors resize-y"
                     placeholder="Digite seu prompt aqui..."
                 />
             </div>
-             <div>
+            <div>
                 <h3 className="text-lg font-semibold mb-2 text-primary">Referência de Prompt</h3>
-                 <p className="text-sm text-secondary mb-4">
+                <p className="text-sm text-secondary mb-4">
                     Use este exemplo como inspiração.
                 </p>
                 <div className="bg-primary/50 border border-primary rounded-md p-4 text-sm text-secondary whitespace-pre-wrap h-96 overflow-y-auto">
-                   {PLAUS_NOTE_REFERENCE}
+                    {PLAUS_NOTE_REFERENCE}
                 </div>
             </div>
         </div>
@@ -258,8 +259,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
 
     const renderAppearanceTab = () => (
         <div className='pt-6'>
-             <div className="border-b border-primary pb-6 mb-6">
-                 <h3 className="text-lg font-semibold mb-2 text-primary">Tema Visual</h3>
+            <div className="border-b border-primary pb-6 mb-6">
+                <h3 className="text-lg font-semibold mb-2 text-primary">Tema Visual</h3>
                 <p className="text-sm text-secondary mb-4">
                     Escolha a aparência do aplicativo.
                 </p>
@@ -267,7 +268,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                     {themes.map(theme => (
                         <button
                             key={theme.id}
-                            onClick={() => setSettings(prev => ({...prev, theme: theme.id}))}
+                            onClick={() => setSettings(prev => ({ ...prev, theme: theme.id }))}
                             className={`p-4 rounded-lg border-2 transition-all duration-200 ${settings.theme === theme.id ? 'border-accent' : 'border-primary hover:border-secondary'}`}
                         >
                             <div className="flex justify-center items-center gap-2 mb-2">
@@ -284,64 +285,64 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
             <div className="border-b border-primary pb-6 mb-6">
                 <h3 className="text-lg font-semibold mb-2 text-primary">Logomarca</h3>
                 <p className="text-sm text-secondary mb-4">
-                   Faça o upload de um arquivo de imagem (PNG, JPG, etc.) para usar como sua logo.
+                    Faça o upload de um arquivo de imagem (PNG, JPG, etc.) para usar como sua logo.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="flex flex-col gap-4">
                         <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
                         <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 px-4 py-3 btn-secondary text-white font-bold rounded-md transition-colors">
-                            <UploadIcon className="w-5 h-5"/>
+                            <UploadIcon className="w-5 h-5" />
                             Carregar Imagem
                         </button>
-                        <button onClick={() => setSettings(prev => ({...prev, logoUrl: null}))} disabled={!settings.logoUrl} className="w-full px-4 py-2 text-sm font-medium text-secondary rounded-md hover:bg-gray-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <button onClick={() => setSettings(prev => ({ ...prev, logoUrl: null }))} disabled={!settings.logoUrl} className="w-full px-4 py-2 text-sm font-medium text-secondary rounded-md hover:bg-gray-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             Remover Logo
                         </button>
                         <div className="mt-2">
                             <label htmlFor="logo-size" className="block text-sm font-medium text-secondary mb-2">
                                 Tamanho da Logo: <span className="font-bold text-primary">{settings.logoSize}px</span>
                             </label>
-                            <input id="logo-size" type="range" min="16" max="64" value={settings.logoSize} onChange={(e) => setSettings(prev => ({...prev, logoSize: parseInt(e.target.value, 10)}))} className="w-full h-2 bg-primary/50 rounded-lg appearance-none cursor-pointer accent-accent" />
+                            <input id="logo-size" type="range" min="16" max="64" value={settings.logoSize} onChange={(e) => setSettings(prev => ({ ...prev, logoSize: parseInt(e.target.value, 10) }))} className="w-full h-2 bg-primary/50 rounded-lg appearance-none cursor-pointer accent-accent" />
                         </div>
                     </div>
-                     <div className="flex flex-col items-center justify-center bg-primary/50 border border-primary rounded-md p-4 min-h-[150px]">
+                    <div className="flex flex-col items-center justify-center bg-primary/50 border border-primary rounded-md p-4 min-h-[150px]">
                         <span className="text-sm text-secondary mb-2">Pré-visualização:</span>
                         <div className="bg-gradient-accent p-2 rounded-lg flex items-center justify-center">
-                           {settings.logoUrl ? (
+                            {settings.logoUrl ? (
                                 <img src={settings.logoUrl} alt="Pré-visualização da Logo" className="object-contain" style={{ width: `${settings.logoSize}px`, height: `${settings.logoSize}px` }} />
-                           ) : (
+                            ) : (
                                 <div className="flex items-center justify-center" style={{ width: `${settings.logoSize}px`, height: `${settings.logoSize}px` }}>
-                                     <p className='text-xs text-center text-primary-bg/70'>Sem logo</p>
+                                    <p className='text-xs text-center text-primary-bg/70'>Sem logo</p>
                                 </div>
-                           )}
+                            )}
                         </div>
                     </div>
                 </div>
             </div>
-             <div className="border-b border-primary pb-6 mb-6">
-                 <h3 className="text-lg font-semibold mb-2 text-primary">Estilo da Onda Sonora</h3>
-                 <p className="text-sm text-secondary mb-4">
+            <div className="border-b border-primary pb-6 mb-6">
+                <h3 className="text-lg font-semibold mb-2 text-primary">Estilo da Onda Sonora</h3>
+                <p className="text-sm text-secondary mb-4">
                     Escolha o formato do visualizador de áudio durante a gravação.
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {waveformStyles.map(style => (
                         <button
                             key={style.id}
-                            onClick={() => setSettings(prev => ({...prev, waveformStyle: style.id}))}
+                            onClick={() => setSettings(prev => ({ ...prev, waveformStyle: style.id }))}
                             className={`p-4 rounded-lg border-2 transition-all duration-200 text-center ${settings.waveformStyle === style.id ? 'border-accent' : 'border-primary hover:border-secondary'}`}
                         >
-                             <p className={`text-sm font-medium ${settings.waveformStyle === style.id ? 'text-primary' : 'text-secondary'}`}>{style.name}</p>
+                            <p className={`text-sm font-medium ${settings.waveformStyle === style.id ? 'text-primary' : 'text-secondary'}`}>{style.name}</p>
                         </button>
                     ))}
                 </div>
             </div>
-             <div>
+            <div>
                 <h3 className="text-lg font-semibold mb-2 text-primary">Voz da Assistente</h3>
                 <p className="text-sm text-secondary mb-4">
                     Escolha a voz que a assistente de IA usará para responder.
                 </p>
-                <select 
+                <select
                     value={settings.voiceName}
-                    onChange={(e) => setSettings(prev => ({...prev, voiceName: e.target.value as PrebuiltVoice}))}
+                    onChange={(e) => setSettings(prev => ({ ...prev, voiceName: e.target.value as PrebuiltVoice }))}
                     className="w-full max-w-xs bg-primary border border-secondary rounded-md p-2.5 text-sm text-primary focus:ring-2 focus-ring focus:border-accent transition-colors"
                 >
                     {voices.map(voice => (
@@ -374,15 +375,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                         placeholder={placeholder}
                         value={settings.apiKeys[provider]}
                         onChange={(e) => {
-                            setSettings(prev => ({...prev, apiKeys: {...prev.apiKeys, [provider]: e.target.value}}));
-                            setValidationStatus(prev => ({ ...prev, [provider]: { status: 'idle', message: '' }}));
+                            setSettings(prev => ({ ...prev, apiKeys: { ...prev.apiKeys, [provider]: e.target.value } }));
+                            setValidationStatus(prev => ({ ...prev, [provider]: { status: 'idle', message: '' } }));
                         }}
                         className="flex-grow bg-primary border border-secondary rounded-md p-2.5 text-sm text-primary focus:ring-2 focus-ring focus:border-accent"
                     />
                     <button onClick={() => handleTestApiKey(provider)} disabled={status === 'loading'} className="px-4 py-2 text-sm font-semibold text-primary bg-primary/50 border border-secondary rounded-md hover:bg-primary transition-colors disabled:opacity-50">Testar</button>
                     <div className="w-5 h-5">{statusIndicator}</div>
                 </div>
-                 {message && <p className={`text-xs mt-1 ${status === 'success' ? 'text-green-400' : 'text-red-400'}`}>{message}</p>}
+                {message && <p className={`text-xs mt-1 ${status === 'success' ? 'text-green-400' : 'text-red-400'}`}>{message}</p>}
             </div>
         );
     };
@@ -396,20 +397,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                 </p>
                 <div className="flex flex-col sm:flex-row gap-2 rounded-lg bg-primary/50 p-1 border border-secondary w-full sm:w-auto">
                     {insightProviders.map(provider => (
-                        <button key={provider.id} onClick={() => setSettings(prev => ({...prev, insightsProvider: provider.id}))} className={`flex-1 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${settings.insightsProvider === provider.id ? 'bg-accent text-primary-bg' : 'text-secondary hover:bg-primary'}`}>
+                        <button key={provider.id} onClick={() => setSettings(prev => ({ ...prev, insightsProvider: provider.id }))} className={`flex-1 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${settings.insightsProvider === provider.id ? 'bg-accent text-primary-bg' : 'text-secondary hover:bg-primary'}`}>
                             {provider.name}
                         </button>
                     ))}
                 </div>
             </div>
             <div>
-                 <h3 className="text-lg font-semibold mb-2 text-primary">Chaves de API</h3>
-                 <p className="text-sm text-secondary mb-4">
+                <h3 className="text-lg font-semibold mb-2 text-primary">Chaves de API</h3>
+                <p className="text-sm text-secondary mb-4">
                     Insira e teste suas chaves de API. A chave do Gemini é gerenciada pelo ambiente do aplicativo.
                 </p>
                 <div className="space-y-6">
-                   <ApiKeyInput provider="openai" label="Chave da API OpenAI" placeholder="sk-..." />
-                   <ApiKeyInput provider="grok" label="Chave da API Grok (xAI)" placeholder="Chave da API..." />
+                    <ApiKeyInput provider="openai" label="Chave da API OpenAI" placeholder="sk-..." />
+                    <ApiKeyInput provider="grok" label="Chave da API Grok (xAI)" placeholder="Chave da API..." />
                 </div>
             </div>
         </div>
@@ -417,7 +418,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
 
     const renderIntegrationsTab = () => (
         <div className='pt-6'>
-            <GoogleDriveSettings settings={settings.gdrive} onSettingsChange={(gdriveSettings) => setSettings(prev => ({...prev, gdrive: gdriveSettings }))} />
+            <GoogleDriveSettings settings={settings.gdrive} onSettingsChange={(gdriveSettings) => setSettings(prev => ({ ...prev, gdrive: gdriveSettings }))} />
         </div>
     );
 
@@ -538,7 +539,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                                 try {
                                     const backupData = localStorage.getItem('transcription_backup');
                                     const backupTime = localStorage.getItem('transcription_backup_time');
-                                    
+
                                     if (!backupData) {
                                         alert('Nenhum backup encontrado no localStorage.');
                                         return;
@@ -546,7 +547,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
 
                                     const data = JSON.parse(backupData);
                                     const timestamp = backupTime ? new Date(parseInt(backupTime)).toLocaleString('pt-BR') : 'Desconhecido';
-                                    
+
                                     // Cria arquivo JSON com backup completo
                                     const exportData = {
                                         backupTimestamp: timestamp,
@@ -620,7 +621,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, o
                 </main>
 
                 <footer className="flex justify-between items-center p-4 border-t border-primary flex-shrink-0 gap-4">
-                     <button onClick={handleReset} disabled={activeTab !== 'prompt'} className="px-4 py-2 text-sm font-medium text-secondary rounded-md hover:bg-gray-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title={activeTab !== 'prompt' ? 'Disponível apenas na aba de Prompt' : 'Restaurar prompt padrão'}>
+                    <button onClick={handleReset} disabled={activeTab !== 'prompt'} className="px-4 py-2 text-sm font-medium text-secondary rounded-md hover:bg-gray-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title={activeTab !== 'prompt' ? 'Disponível apenas na aba de Prompt' : 'Restaurar prompt padrão'}>
                         Restaurar Padrão
                     </button>
                     <button onClick={handleSave} className="px-6 py-2 btn-primary text-white font-bold text-sm rounded-md transition-colors focus:outline-none focus:ring-2 focus-ring focus:ring-opacity-50">
