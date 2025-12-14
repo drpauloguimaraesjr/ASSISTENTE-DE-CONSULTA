@@ -1,8 +1,8 @@
-import { GoogleGenAI, LiveConfig, LiveConnection } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 export class GeminiLiveService {
     private client: GoogleGenAI;
-    private connection: LiveConnection | null = null;
+    private connection: any | null = null;
     private audioContext: AudioContext | null = null;
     private audioProcessor: ScriptProcessorNode | null = null;
     private mediaStream: MediaStream | null = null;
@@ -40,8 +40,8 @@ export class GeminiLiveService {
     private async attemptConnect() {
         if (!this.shouldStayConnected) return;
 
-        this.onLogCallback(this.isReconnecting ? 
-            `Tentando reconectar (tentativa ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...` : 
+        this.onLogCallback(this.isReconnecting ?
+            `Tentando reconectar (tentativa ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...` :
             "Iniciando conexão com Gemini Live...");
 
         try {
@@ -58,7 +58,7 @@ export class GeminiLiveService {
                 this.connection = null;
             }
 
-            const config: LiveConfig = {
+            const config: any = {
                 generationConfig: {
                     responseModalities: "text", // Queremos apenas texto de volta (transcrição)
                     speechConfig: {
@@ -72,11 +72,24 @@ export class GeminiLiveService {
                 }
             };
 
-            // CORREÇÃO: Passando o modelo no nível superior do objeto de opções
+            // CORREÇÃO: Usando callbacks como exigido pelo SDK mais recente
             this.connection = await this.client.live.connect({
                 model: "gemini-2.0-flash-exp",
-                config: config
-            });
+                config: config as any,
+                callbacks: {
+                    onMessage: (message: any) => {
+                        this.handleMessage(message);
+                    },
+                    onError: (error: any) => {
+                        this.onLogCallback(`Erro no callback Gemini: ${error}`);
+                        this.onErrorCallback(String(error));
+                    },
+                    onClose: () => {
+                        this.onLogCallback("Conexão fechada pelo servidor via callback.");
+                        this.isConnected = false;
+                    }
+                }
+            } as any);
 
             this.isConnected = true;
             this.isReconnecting = false;
@@ -88,13 +101,15 @@ export class GeminiLiveService {
                 await this.startAudioCapture();
             }
 
-            // Ouvir respostas do Gemini
-            this.listenToResponses();
+            // Não precisamos mais de listenToResponses explicitamente se os callbacks funcionarem,
+            // mas se o SDK retornar um stream E callbacks, podemos manter o listenToResponses como fallback?
+            // O erro original "Não foi possível encontrar stream iterável" sugere que o loop falhava.
+            // Se usarmos callbacks, o loop não é necessário.
 
         } catch (error: any) {
             console.error("Erro ao conectar no Gemini Live:", error);
             this.isConnected = false;
-            
+
             // Tenta reconectar se ainda deve ficar conectado
             if (this.shouldStayConnected && this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.reconnectAttempts++;
@@ -108,120 +123,33 @@ export class GeminiLiveService {
         }
     }
 
-    private async listenToResponses() {
-        if (!this.connection) return;
-
-        this.onLogCallback("Aguardando respostas do Gemini...");
+    // Processamento de mensagem extraído para método separado
+    private handleMessage(message: any) {
+        if (!this.isConnected) return; // Ignora se desconectado
 
         try {
-            // DEBUG: Log das propriedades disponíveis na conexão
-            const conn = this.connection as any;
-            const availableMethods = Object.getOwnPropertyNames(conn).filter(prop => typeof conn[prop] === 'function');
-            const availableProps = Object.getOwnPropertyNames(conn).filter(prop => typeof conn[prop] !== 'function');
-            this.onLogCallback(`Métodos disponíveis: ${availableMethods.join(', ') || 'nenhum'}`);
-            this.onLogCallback(`Propriedades disponíveis: ${availableProps.join(', ') || 'nenhum'}`);
-            console.log("LiveConnection object:", conn);
-            console.log("Connection prototype:", Object.getPrototypeOf(conn));
-            
-            // Tenta diferentes formas de acessar o stream
-            let stream: AsyncIterable<any>;
-            
-            // Abordagem 1: Verifica se tem Symbol.asyncIterator (é iterável diretamente)
-            if (conn && typeof conn[Symbol.asyncIterator] === 'function') {
-                this.onLogCallback("Conexão é async iterable diretamente");
-                stream = conn;
-            }
-            // Abordagem 2: Tenta método stream()
-            else if (typeof conn.stream === 'function') {
-                this.onLogCallback("Usando método stream()");
-                stream = conn.stream();
-            }
-            // Abordagem 3: Tenta propriedade stream
-            else if (conn.stream && typeof conn.stream[Symbol.asyncIterator] === 'function') {
-                this.onLogCallback("Usando propriedade stream");
-                stream = conn.stream;
-            }
-            // Abordagem 4: Tenta métodos alternativos comuns
-            else if (typeof conn.getMessageStream === 'function') {
-                this.onLogCallback("Usando getMessageStream()");
-                stream = conn.getMessageStream();
-            }
-            else if (typeof conn.receive === 'function') {
-                this.onLogCallback("Usando receive()");
-                stream = conn.receive();
-            }
-            else {
-                // Última tentativa: verifica propriedades privadas
-                const possibleStreams = ['_stream', '_messageStream', '_receiveStream', 'messageStream'];
-                const foundStream = possibleStreams.find(prop => conn[prop] && typeof conn[prop][Symbol.asyncIterator] === 'function');
-                
-                if (foundStream) {
-                    this.onLogCallback(`Usando ${foundStream}`);
-                    stream = conn[foundStream];
-                } else {
-                    const errorMsg = `Não foi possível encontrar stream iterável. Métodos: ${availableMethods.join(', ') || 'nenhum'}`;
-                    this.onLogCallback(errorMsg);
-                    throw new Error(errorMsg);
-                }
-            }
-            
-            this.onLogCallback("Iniciando loop de mensagens...");
-            for await (const message of stream) {
-                if (!this.isConnected) {
-                    this.onLogCallback("Desconectado durante loop, saindo...");
-                    break;
-                }
-                
-                if (message.serverContent?.modelTurn?.parts) {
-                    for (const part of message.serverContent.modelTurn.parts) {
-                        if (part.text) {
-                            this.onLogCallback(`Texto recebido: ${part.text.substring(0, 50)}...`);
-                            this.onTranscriptCallback(part.text, false);
-                        }
+            if (message.serverContent?.modelTurn?.parts) {
+                for (const part of message.serverContent.modelTurn.parts) {
+                    if (part.text) {
+                        this.onLogCallback(`Texto recebido: ${part.text.substring(0, 50)}...`);
+                        this.onTranscriptCallback(part.text, false);
                     }
                 }
+            }
 
-                if (message.serverContent?.turnComplete) {
-                    this.onLogCallback("Turno completado pelo modelo.");
-                    this.onTranscriptCallback("", true);
-                }
+            if (message.serverContent?.turnComplete) {
+                this.onLogCallback("Turno completado pelo modelo.");
+                this.onTranscriptCallback("", true);
             }
-            
-            this.onLogCallback("Loop de mensagens terminou (stream fechado)");
-            
-            // Se ainda deve ficar conectado, tenta reconectar
-            if (this.shouldStayConnected && this.isConnected) {
-                this.onLogCallback("Stream fechou, mas mantendo conexão ativa. Tentando reabrir stream...");
-                // Pequeno delay antes de tentar novamente
-                setTimeout(() => {
-                    if (this.shouldStayConnected && this.isConnected && this.connection) {
-                        this.listenToResponses();
-                    }
-                }, 1000);
-            }
-        } catch (error: any) {
-            console.error("Erro no stream de resposta:", error);
-            const errorDetails = error?.message || String(error);
-            this.onLogCallback(`Erro detalhado: ${errorDetails}`);
-            
-            // Não desconecta imediatamente - tenta reconectar se deve ficar conectado
-            if (this.shouldStayConnected) {
-                this.isConnected = false;
-                this.onLogCallback("Erro no stream, tentando reconectar...");
-                
-                if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                    this.reconnectAttempts++;
-                    this.isReconnecting = true;
-                    setTimeout(() => this.attemptConnect(), this.reconnectDelay);
-                } else {
-                    this.onErrorCallback("Erro no stream de resposta após múltiplas tentativas: " + errorDetails);
-                    this.disconnect();
-                }
-            } else {
-                this.onErrorCallback("Erro no stream de resposta: " + errorDetails);
-                this.disconnect();
-            }
+        } catch (e) {
+            console.error("Erro ao processar mensagem:", e);
         }
+    }
+
+    // Mantendo método vazio ou obsoleto para não quebrar referências internas se houver
+    private async listenToResponses() {
+        this.onLogCallback("Escutando respostas via callbacks (método stream desativado).");
+        // Se o connect já configurou callbacks, aqui não fazemos nada.
     }
 
     private async startAudioCapture() {
@@ -251,7 +179,7 @@ export class GeminiLiveService {
                 const pcmData = this.floatTo16BitPCM(inputData);
 
                 // Converter para Base64
-                const base64Audio = this.arrayBufferToBase64(pcmData.buffer);
+                const base64Audio = this.arrayBufferToBase64(pcmData.buffer as ArrayBuffer);
 
                 // Enviar para o Gemini
                 this.connection.send([{
